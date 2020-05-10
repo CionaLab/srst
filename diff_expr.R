@@ -1,5 +1,11 @@
 library(tidyverse)
+library(furrr)
 library(MAST)
+
+options(
+    future.globals.maxSize =  16 * 1024 * 1024 * 1024,
+    mc.cores = 64
+)
 
 as_matrix <- function(x) {
     if (!tibble::is_tibble(x)) stop("x must be a tibble")
@@ -33,20 +39,21 @@ meta_cell <- read_tsv("data/ciona10stage.cluster.upload.new.txt") %>%
 
 mat_exprs <- FromMatrix(as_matrix(exprs), meta_cell)
 
-mat_subsets <- split(mat_exprs, "tissue_type") %>% map(~ split(.x, "stage"))
+mat_subsets <- split(mat_exprs, "tissue_type") %>%
+    future_map(~ split(.x, "stage"))
 
-comparisons <- map2(
+comparisons <- future_map2(
     head(names(stages), -1),
     tail(names(stages), -1),
     ~ c(.x, .y)
 )
 
-mat_subsets <- map(
+mat_subsets <- future_map(
     mat_subsets,
-    function(subset) map(
+    function(subset) future_map(
         comparisons,
-        ~ map(.x, ~ subset[stages[[.x]]])
+        ~ future_map(.x, ~ subset[stages[[.x]]])
     ) %>%
-        map(~ pmap(.x, cbind)) %>%
+        future_map(~ future_pmap(.x, cbind)) %>%
         unlist()
 )
