@@ -54,3 +54,28 @@ mat_subsets <- future_map(
     future_map(~ future_pmap(.x, cbind)) %>%
     unlist()
 )
+
+# reset memory limit to avoid running out of memory.
+options(future.globals.maxSize = 500 * 1024 * 1024)
+
+zlm_output <- map(mat_subsets, ~ map(.x, ~zlm(~stage, .x)))
+
+sumr <- map(zlm_output, ~ map(.x, ~ summary(.x, doLRT = TRUE)))
+
+fc <- map(
+    sumr,
+    ~ map(
+        .x,
+        ~ .x$datatable[contrast != "(Intercept)"]
+    ) %>%
+    map(
+        ~ merge(
+            .x[component == "H", .(primerid, `Pr(>Chisq)`)],
+            .x[component == "logFC", .(primerid, coef, ci.hi, ci.lo)],
+            by = "primerid"
+        )
+    ) %>%
+    map(
+        ~ .x[, fdr := p.adjust(`Pr(>Chisq)`, "fdr")]
+    )
+)
