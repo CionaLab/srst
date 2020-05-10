@@ -2,11 +2,6 @@ library(tidyverse)
 library(furrr)
 library(MAST)
 
-options(
-    future.globals.maxSize =  16 * 1024 * 1024 * 1024,
-    mc.cores = 64
-)
-
 as_matrix <- function(x) {
     if (!tibble::is_tibble(x)) stop("x must be a tibble")
     y <- as.matrix.data.frame(x[, -1])
@@ -47,6 +42,8 @@ comparisons <- future_map2(
     tail(names(stages), -1),
     ~ c(.x, .y)
 )
+
+options(future.globals.maxSize =  16 * 1024 * 1024 * 1024)
 
 mat_subsets <- future_map(
     mat_subsets,
