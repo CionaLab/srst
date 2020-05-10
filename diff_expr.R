@@ -79,3 +79,37 @@ fc <- map(
         ~ .x[, fdr := p.adjust(`Pr(>Chisq)`, "fdr")]
     )
 )
+
+fc_filtered <- map(
+    fc,
+    ~ map(
+        .x,
+        ~ as_tibble(.x) %>%
+        filter(fdr < 0.05 & abs(coef) > log2(1.5)) %>%
+        rename(`Pr(>Chisq)` = "chisq") %>%
+        arrange(fdr, abs(coef))
+    )
+)
+
+tissue_type <- names(fc_filtered) %>%
+map(~ sub("\\W+", "_", .x)) %>%
+unlist()
+
+map(
+    fc_filtered,
+    ~ map2(
+        .x,
+        map(
+            comparisons,
+            ~paste(.x, collapse = "-")
+        ),
+        ~ add_column(.x, comp = .y)
+    ) %>%
+    bind_rows()
+) %>%
+map2(
+    tissue_type,
+    ~ add_column(.x, tissue_type = .y)
+) %>%
+bind_rows() %>%
+write_tsv("diff_expr.tsv")
