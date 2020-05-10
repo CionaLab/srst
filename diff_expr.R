@@ -27,15 +27,15 @@ stages <- list(
 exprs <- read_tsv("data/expression_matrix_10stage.tsv")
 
 meta_cell <- read_tsv("data/ciona10stage.cluster.upload.new.txt") %>%
-    rename_all(tolower) %>%
-    rename_all(~ sub(" ", "_", .)) %>%
-    separate(name, c("stage", "barcode"), "_") %>%
-    separate(stage, c("stage", "replica"), "\\.")
+rename_all(tolower) %>%
+rename_all(~ sub(" ", "_", .)) %>%
+separate(name, c("stage", "barcode"), "_") %>%
+separate(stage, c("stage", "replica"), "\\.")
 
 mat_exprs <- FromMatrix(as_matrix(exprs), meta_cell)
 
 mat_subsets <- split(mat_exprs, "tissue_type") %>%
-    future_map(~ split(.x, "stage"))
+future_map(~ split(.x, "stage"))
 
 comparisons <- future_map2(
     head(names(stages), -1),
@@ -51,6 +51,6 @@ mat_subsets <- future_map(
         comparisons,
         ~ future_map(.x, ~ subset[stages[[.x]]])
     ) %>%
-        future_map(~ future_pmap(.x, cbind)) %>%
-        unlist()
+    future_map(~ future_pmap(.x, cbind)) %>%
+    unlist()
 )
