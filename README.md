@@ -8,13 +8,23 @@ analysis project. The data comes from [Cao
 
 ### Getting started
 
-1. Install Python 3.7.5
-2. (Optional) Create a virtual environment
-3. Install Python dependencies:
+1. Install R 4.0.0
+2. Install `tidyverse`, `furrr`, and `MAST`.
 
-    ```ShellSession
-    pip install -r requirements.txt
-    ```
+### Download single cell data
 
-4. Install R 3.6.1
-5. Install `tidyverse`.
+1. Download the following files to `data` directory from the
+    [Broad institute single cell portal](https://portals.broadinstitute.org/single_cell/study/SCP454/comprehensive-single-cell-transcriptome-lineages-of-a-proto-vertebrate):
+
+    | File name                           | SHA256                                                             |
+    |-------------------------------------|--------------------------------------------------------------------|
+    | expression_matrix_10stage.tsv.gz    | `522692396722709d65795df68572224c604521f9219a510daec0aa53b990133c` |
+    | ciona10stage.cluster.upload.new.txt | `bdc25b2c125e2c99f70cda7403f7949f623d701cdb102bd855c1940004071832` |
+
+2. Decompress the file in place if necessary.
+
+### Calculating differential expression
+
+1. Run `diff_expr.R`. The script requires a lot amount of RAM and CPU time.
+    Adjust `options(future.globals.maxSize)` if memory is running out. It
+    writes the result in `diff_expr.tsv`.
