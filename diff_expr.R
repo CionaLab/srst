@@ -34,6 +34,8 @@ separate(stage, c("stage", "replica"), "\\.")
 
 mat_exprs <- FromMatrix(as_matrix(exprs), meta_cell)
 
+options(future.globals.maxSize =  16 * 1024 * 1024 * 1024)
+
 mat_subsets <- split(mat_exprs, "tissue_type") %>%
 future_map(~split(.x, "stage"))
 
@@ -42,8 +44,6 @@ comparisons <- future_map2(
     tail(names(stages), -1),
     ~c(.x, .y)
 )
-
-options(future.globals.maxSize =  16 * 1024 * 1024 * 1024)
 
 mat_subsets <- future_map(
     mat_subsets,
