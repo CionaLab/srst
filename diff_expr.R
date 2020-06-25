@@ -30,7 +30,24 @@ meta_cell <- read_tsv("data/ciona10stage.cluster.upload.new.txt") %>%
 rename_all(tolower) %>%
 rename_all(~sub(" ", "_", .)) %>%
 separate(name, c("stage", "barcode"), "_") %>%
-separate(stage, c("stage", "replica"), "\\.")
+separate(stage, c("stage", "replica"), "\\.") %>%
+mutate(
+    stage = factor(
+        stage,
+        levels = c(
+            "C110",
+            "midG",
+            "earlyN",
+            "lateN",
+            "ITB",
+            "ETB",
+            "MTB",
+            "LTB1",
+            "LTB2",
+            "lv"
+        )
+    )
+)
 
 mat_exprs <- FromMatrix(as_matrix(exprs), meta_cell)
 
