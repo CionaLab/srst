@@ -35,7 +35,7 @@ separate(stage, c("stage", "replica"), "\\.")
 mat_exprs <- FromMatrix(as_matrix(exprs), meta_cell)
 
 mat_subsets <- split(mat_exprs, "tissue_type") %>%
-future_map(~Split(.x, "stage"))
+future_map(~split(.x, "stage"))
 
 comparisons <- future_map2(
     head(names(stages), -1),
