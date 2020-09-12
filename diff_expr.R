@@ -94,6 +94,29 @@ fc <- map(
     ) %>%
     map(
         ~.x[, fdr := p.adjust(`Pr(>Chisq)`, "fdr")]
+    ) %>%
+    map(~as_tibble(.x))
+)
+
+bl <- map(
+    sumr,
+    ~map(
+        .x,
+        ~.x$datatable[contrast == "(Intercept)"]
+    ) %>%
+    map(~.x[component == "D", .(primerid, coef, ci.hi, ci.lo)]) %>%
+    map(
+        ~as_tibble(.x) %>%
+        rename(coef = "bl", ci.hi = "bl.hi", ci.lo = "bl.lo")
+    )
+)
+
+fc <- map2(
+    fc, bl,
+    ~map2(
+        .x, .y,
+        ~full_join(.x, .y, by = "primerid") %>%
+        rename(`Pr(>Chisq)` = "chisq")
     )
 )
 
@@ -101,9 +124,7 @@ fc_filtered <- map(
     fc,
     ~map(
         .x,
-        ~as_tibble(.x) %>%
-        filter(fdr < 0.05 & abs(coef) > log2(1.5)) %>%
-        rename(`Pr(>Chisq)` = "chisq") %>%
+        ~filter(.x, fdr < 0.05 & abs(coef) > log2(1.5)) %>%
         arrange(fdr, abs(coef))
     )
 )
