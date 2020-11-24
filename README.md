@@ -19,9 +19,10 @@ analysis project. The data comes from [Cao
     | File name                           | SHA256                                                             |
     |-------------------------------------|--------------------------------------------------------------------|
     | expression_matrix_10stage.tsv.gz    | `522692396722709d65795df68572224c604521f9219a510daec0aa53b990133c` |
-    | ciona10stage.cluster.upload.new.txt | `bdc25b2c125e2c99f70cda7403f7949f623d701cdb102bd855c1940004071832` |
+    | ciona10stage.cluster.upload.new.txt | `aefa4ccb2ce436f78b3f788ae051d441834ca9b18a64f82e49d9fafb41e0e97b` |
 
-2. Decompress the file in place if necessary.
+2. Decompress the file in place if necessary. Remove the extra header line in
+    `ciona10stage.cluster.upload.new.txt`.
 
 ### Calculating differential expression
 
