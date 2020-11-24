@@ -1,6 +1,5 @@
+library(monocle3)
 library(tidyverse)
-library(furrr)
-library(MAST)
 
 as_matrix <- function(x) {
     if (!tibble::is_tibble(x)) stop("x must be a tibble")
@@ -9,145 +8,164 @@ as_matrix <- function(x) {
     y
 }
 
-
-# translate stages in the paper to stages in the data
-stages <- list(
-    "iniG" = "C110",
-    "midG" = "midG",
-    "earN" = "earlyN",
-    "latN" = "lateN",
-    "iniTI" = "ITB",
-    "earTI" = "ETB",
-    "midTII" = "MTB",
-    "latTI" = "LTB1",
-    "latTII" = "LTB2",
-    "larva" = "lv"
-)
-
-exprs <- read_tsv("data/expression_matrix_10stage.tsv")
+exprs <- read_tsv("data/expression_matrix_10stage.tsv") %>%
+as_matrix()
 
 meta_cell <- read_tsv("data/ciona10stage.cluster.upload.new.txt") %>%
 rename_all(tolower) %>%
 rename_all(~sub(" ", "_", .)) %>%
-separate(name, c("stage", "barcode"), "_") %>%
+separate(name, c("stage", "barcode"), "_", remove = FALSE) %>%
 separate(stage, c("stage", "replica"), "\\.") %>%
 mutate(
-    stage = factor(
-        stage,
-        levels = c(
-            "C110",
-            "midG",
-            "earlyN",
-            "lateN",
-            "ITB",
-            "ETB",
-            "MTB",
-            "LTB1",
-            "LTB2",
-            "lv"
-        )
+    stage = factor(stage) %>% recode_factor(
+        `C110` = "iniG",
+        `midG` = "midG",
+        `earlyN` = "earN",
+        `lateN` = "latN",
+        `ITB` = "iniTI",
+        `ETB` = "earTI",
+        `MTB` = "midTII",
+        `LTB1` = "latTI",
+        `LTB2` = "latTII",
+        `lv` = "larva"
+    ),
+    tissue_type = factor(tissue_type) %>% recode(
+        `muscle & heart` = "muscle_heart",
+        `nervous system` = "nervous_system"
     )
 )
 
-mat_exprs <- FromMatrix(as_matrix(exprs), meta_cell)
-
-options(future.globals.maxSize =  16 * 1024 * 1024 * 1024)
-
-mat_subsets <- split(mat_exprs, "tissue_type") %>%
-future_map(~split(.x, "stage"))
-
-comparisons <- future_map2(
-    head(names(stages), -1),
-    tail(names(stages), -1),
-    ~c(.x, .y)
+cds <- new_cell_data_set(
+    exprs,
+    cell_metadata = meta_cell %>% column_to_rownames("name"),
+    gene_metadata = tibble(name = rownames(exprs)) %>%
+    mutate(gene_short_name = name) %>%
+    column_to_rownames("name")
 )
 
-mat_subsets <- future_map(
-    mat_subsets,
-    function(subset) future_map(
-        comparisons,
-        ~future_map(.x, ~subset[stages[[.x]]])
-    ) %>%
-    future_map(~future_pmap(.x, cbind)) %>%
-    unlist()
+cds <- cds %>%
+preprocess_cds(., num_dim = 100) %>%
+align_cds(., alignment_group = "stage") %>%
+reduce_dimension(.) %>%
+cluster_cells(.) %>%
+learn_graph(.)
+
+cds <- order_cells(cds)
+
+plot_cells(
+    cds,
+    color_cells_by = "stage",
+    label_cell_groups = FALSE,
+    label_leaves = FALSE,
+    label_root = FALSE,
+    label_branch_points = FALSE
 )
 
-# reset memory limit to avoid running out of memory.
-options(future.globals.maxSize = 500 * 1024 * 1024)
+ggsave(filename = "cds_1.2020-11-24.png")
 
-zlm_output <- map(mat_subsets, ~map(.x, ~zlm(~stage, .x)))
-
-sumr <- map(zlm_output, ~map(.x, ~summary(.x, doLRT = TRUE)))
-
-fc <- map(
-    sumr,
-    ~map(
-        .x,
-        ~.x$datatable[contrast != "(Intercept)"]
-    ) %>%
-    map(
-        ~merge(
-            .x[component == "H", .(primerid, `Pr(>Chisq)`)],
-            .x[component == "logFC", .(primerid, coef, ci.hi, ci.lo)],
-            by = "primerid"
-        )
-    ) %>%
-    map(
-        ~.x[, fdr := p.adjust(`Pr(>Chisq)`, "fdr")]
-    ) %>%
-    map(~as_tibble(.x))
+plot_cells(
+    cds,
+    color_cells_by = "tissue_type",
+    label_cell_groups = FALSE,
+    label_leaves = FALSE,
+    label_root = FALSE,
+    label_branch_points = FALSE
 )
 
-bl <- map(
-    sumr,
-    ~map(
-        .x,
-        ~.x$datatable[contrast == "(Intercept)"]
-    ) %>%
-    map(~.x[component == "D", .(primerid, coef, ci.hi, ci.lo)]) %>%
-    map(
-        ~as_tibble(.x) %>%
-        rename(coef = "bl", ci.hi = "bl.hi", ci.lo = "bl.lo")
-    )
+ggsave(filename = "cds_2.2020-11-24.png")
+
+plot_cells(
+    cds,
+    color_cells_by = "pseudotime",
+    label_cell_groups = FALSE,
+    label_leaves = FALSE,
+    label_root = FALSE,
+    label_branch_points = FALSE
 )
 
-fc <- map2(
-    fc, bl,
-    ~map2(
-        .x, .y,
-        ~full_join(.x, .y, by = "primerid") %>%
-        rename(`Pr(>Chisq)` = "chisq")
-    )
+ggsave(filename = "cds_3.2020-11-24.png")
+
+pr_test_res <- graph_test(cds, neighbor_graph = "principal_graph", cores = 64)
+pr_deg_ids <- row.names(subset(pr_test_res, q_value < 0.05))
+
+gene_module_df <- find_gene_modules(
+    cds[pr_deg_ids, ],
+    resolution = c(10 ^ seq(-6, -1))
 )
 
-fc_filtered <- map(
-    fc,
-    ~map(
-        .x,
-        ~filter(.x, fdr < 0.05 & abs(coef) > log2(1.5)) %>%
-        arrange(fdr, abs(coef))
-    )
+cell_group_df <- tibble::tibble(
+    cell = row.names(colData(cds)),
+    cell_group = partitions(cds)[colnames(cds)]
 )
 
-tissue_type <- names(fc_filtered) %>%
-map(~sub("\\W+", "_", .x)) %>%
-unlist()
+agg_mat <- aggregate_gene_expression(
+    cds,
+    gene_module_df,
+    cell_group_df
+)
+row.names(agg_mat) <- stringr::str_c("Module ", row.names(agg_mat))
+colnames(agg_mat) <- stringr::str_c("Partition ", colnames(agg_mat))
 
-map(
-    fc_filtered,
-    ~map2(
-        .x,
-        map(
-            comparisons,
-            ~paste(.x, collapse = "-")
-        ),
-        ~add_column(.x, comp = .y)
-    ) %>%
-    bind_rows()
-) %>%
-map2(
-    tissue_type,
-    ~add_column(.x, tissue_type = .y)
-) %>%
-bind_rows() %>%
-write_tsv("diff_expr.tsv")
+pheatmap::pheatmap(
+    agg_mat,
+    cluster_rows = TRUE,
+    cluster_cols = TRUE,
+    scale = "column",
+    clustering_method = "ward.D2",
+    fontsize = 6,
+    filename = "heatmap.png"
+)
+
+plot_cells(
+    cds,
+    genes = gene_module_df %>% filter(module %in% c(38, 22, 66, 76)),
+    group_cells_by = "partition",
+    color_cells_by = "partition",
+    show_trajectory_graph = FALSE
+)
+
+ggsave(filename = "cds_4.2020-11-24.png", width = 14, height = 14)
+
+plot_cells(
+    cds,
+    genes = c(
+        "KH2012:KH.C1.315",
+        "KH2012:KH.C11.574",
+        "KH2012:KH.C11.696",
+        "KH2012:KH.C2.54",
+        "KH2012:KH.C2.569",
+        "KH2012:KH.C4.675",
+        "KH2012:KH.C7.498",
+        "KH2012:KH.L170.55"
+    ),
+    label_cell_groups = FALSE,
+    label_leaves = FALSE,
+    label_root = FALSE,
+    label_branch_points = FALSE
+)
+
+ggsave(filename = "cds_5.2020-11-24.png", width = 21, height = 21)
+
+marker_test_res <- top_markers(
+    cds,
+    group_cells_by = "partition",
+    reference_cells = 1000,
+    cores = 64
+)
+
+top_specific_markers <- marker_test_res %>%
+filter(fraction_expressing >= 0.10) %>%
+group_by(cell_group) %>%
+top_n(5, pseudo_R2)
+
+top_specific_marker_ids <- unique(top_specific_markers %>% pull(gene_id))
+
+plot_genes_by_group(
+    cds,
+    top_specific_marker_ids,
+    group_cells_by = "partition",
+    ordering_type = "cluster_row_col",
+    max.size = 3
+)
+
+ggsave(filename = "cds_6.2020-11-24.png", width = 14, height = 28)
