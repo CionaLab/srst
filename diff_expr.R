@@ -57,7 +57,11 @@ cds <- new_cell_data_set(
 cds <- cds %>%
 preprocess_cds(., num_dim = 100) %>%
 align_cds(., alignment_group = "stage") %>%
-reduce_dimension(.) %>%
+reduce_dimension(
+    .,
+    umap.n_neighbors = 30,
+    umap.min_dist = 0.75
+) %>%
 cluster_cells(.) %>%
 learn_graph(.)
 
