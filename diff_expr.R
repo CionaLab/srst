@@ -35,12 +35,23 @@ mutate(
     )
 )
 
+meta_gene <- read_csv("data/gene_markers.csv") %>%
+select(gene, gene_short_name = anno1) %>%
+distinct() %>%
+left_join(
+    tibble(name = rownames(exprs)),
+    .,
+    by = c("name" = "gene")
+) %>%
+mutate(
+    gene_short_name = coalesce(gene_short_name, name),
+    gene_short_name = sub("KH2012:", "", gene_short_name)
+)
+
 cds <- new_cell_data_set(
     exprs,
     cell_metadata = meta_cell %>% column_to_rownames("name"),
-    gene_metadata = tibble(name = rownames(exprs)) %>%
-    mutate(gene_short_name = name) %>%
-    column_to_rownames("name")
+    gene_metadata = meta_gene %>% column_to_rownames("name")
 )
 
 cds <- cds %>%
