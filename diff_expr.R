@@ -63,9 +63,13 @@ reduce_dimension(
     umap.min_dist = 0.75
 ) %>%
 cluster_cells(.) %>%
-learn_graph(.)
-
-cds <- order_cells(cds)
+learn_graph(.) %>%
+order_cells(
+    .,
+    root_cells = meta_cell %>%
+    filter(stage %in% c("iniG")) %>%
+    pull(name)
+)
 
 plot_cells(
     cds,
