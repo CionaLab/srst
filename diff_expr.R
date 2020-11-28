@@ -1,5 +1,6 @@
 library(monocle3)
 library(tidyverse)
+library(egg)
 
 as_matrix <- function(x) {
     if (!tibble::is_tibble(x)) stop("x must be a tibble")
@@ -68,37 +69,37 @@ order_cells(
     pull(name)
 )
 
-plot_cells(
-    cds,
-    color_cells_by = "stage",
-    label_cell_groups = FALSE,
-    label_leaves = FALSE,
-    label_root = FALSE,
-    label_branch_points = FALSE,
-    show_trajectory_graph = FALSE
+list(
+    list(
+        cds,
+        color_cells_by = "stage",
+        label_cell_groups = FALSE,
+        label_leaves = FALSE,
+        label_root = FALSE,
+        label_branch_points = FALSE,
+        show_trajectory_graph = FALSE
+    ),
+    list(
+        cds,
+        color_cells_by = "pseudotime",
+        label_cell_groups = FALSE,
+        label_leaves = FALSE,
+        label_root = FALSE,
+        label_branch_points = FALSE
+    ),
+    list(
+        cds,
+        color_cells_by = "tissue_type",
+        label_cell_groups = FALSE,
+        label_leaves = FALSE,
+        label_root = FALSE,
+        label_branch_points = FALSE,
+        show_trajectory_graph = FALSE
+    )
 ) %>%
-ggsave(., filename = "cds_1_stages.2020-11-27.png")
-
-plot_cells(
-    cds,
-    color_cells_by = "tissue_type",
-    label_cell_groups = FALSE,
-    label_leaves = FALSE,
-    label_root = FALSE,
-    label_branch_points = FALSE,
-    show_trajectory_graph = FALSE
-) %>%
-ggsave(., filename = "cds_1_tissues.2020-11-27.png")
-
-plot_cells(
-    cds,
-    color_cells_by = "pseudotime",
-    label_cell_groups = FALSE,
-    label_leaves = FALSE,
-    label_root = FALSE,
-    label_branch_points = FALSE
-) %>%
-ggsave(., filename = "cds_1_pseudotime.2020-11-27.png")
+map(~ exec(plot_cells, !!!.)) %>%
+exec(ggarrange, !!!.) %>%
+ggsave(., filename = "cds_1.2020-11-27.png", height = 21)
 
 pr_test_res <- graph_test(cds, neighbor_graph = "principal_graph", cores = 64)
 pr_deg_ids <- row.names(subset(pr_test_res, q_value < 0.05))
@@ -133,16 +134,15 @@ pheatmap::pheatmap(
 
 plot_cells(
     cds,
-    genes = gene_module_df %>% filter(module %in% c(38, 22, 66, 76)),
+    genes = gene_module_df %>% filter(module %in% c(17, 16, 30)),
     group_cells_by = "partition",
     color_cells_by = "partition",
     show_trajectory_graph = FALSE
 ) %>%
 ggsave(
     .,
-    filename = "cds_4.2020-11-24.png",
-    width = 14,
-    height = 14
+    filename = "cds_1_modules.2020-11-27.png",
+    width = 21
 )
 
 marker_test_res <- top_markers(
