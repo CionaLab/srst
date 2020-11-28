@@ -52,18 +52,15 @@ cds <- new_cell_data_set(
     exprs,
     cell_metadata = meta_cell %>% column_to_rownames("name"),
     gene_metadata = meta_gene %>% column_to_rownames("name")
-)
-
-cds <- cds %>%
+) %>%
 preprocess_cds(., num_dim = 100) %>%
 align_cds(., alignment_group = "stage") %>%
 reduce_dimension(
     .,
-    umap.n_neighbors = 30,
-    umap.min_dist = 0.75
+    umap.n_neighbors = 100
 ) %>%
 cluster_cells(.) %>%
-learn_graph(.) %>%
+learn_graph(., use_partition = FALSE) %>%
 order_cells(
     .,
     root_cells = meta_cell %>%
@@ -77,10 +74,10 @@ plot_cells(
     label_cell_groups = FALSE,
     label_leaves = FALSE,
     label_root = FALSE,
-    label_branch_points = FALSE
-)
-
-ggsave(filename = "cds_1.2020-11-24.png")
+    label_branch_points = FALSE,
+    show_trajectory_graph = FALSE
+) %>%
+ggsave(., filename = "cds_1_stages.2020-11-27.png")
 
 plot_cells(
     cds,
@@ -88,10 +85,10 @@ plot_cells(
     label_cell_groups = FALSE,
     label_leaves = FALSE,
     label_root = FALSE,
-    label_branch_points = FALSE
-)
-
-ggsave(filename = "cds_2.2020-11-24.png")
+    label_branch_points = FALSE,
+    show_trajectory_graph = FALSE
+) %>%
+ggsave(., filename = "cds_1_tissues.2020-11-27.png")
 
 plot_cells(
     cds,
@@ -100,9 +97,8 @@ plot_cells(
     label_leaves = FALSE,
     label_root = FALSE,
     label_branch_points = FALSE
-)
-
-ggsave(filename = "cds_3.2020-11-24.png")
+) %>%
+ggsave(., filename = "cds_1_pseudotime.2020-11-27.png")
 
 pr_test_res <- graph_test(cds, neighbor_graph = "principal_graph", cores = 64)
 pr_deg_ids <- row.names(subset(pr_test_res, q_value < 0.05))
@@ -132,7 +128,7 @@ pheatmap::pheatmap(
     scale = "column",
     clustering_method = "ward.D2",
     fontsize = 6,
-    filename = "heatmap.png"
+    filename = "cds_1_module_heatmap_2020-11-27.png"
 )
 
 plot_cells(
@@ -141,29 +137,13 @@ plot_cells(
     group_cells_by = "partition",
     color_cells_by = "partition",
     show_trajectory_graph = FALSE
+) %>%
+ggsave(
+    .,
+    filename = "cds_4.2020-11-24.png",
+    width = 14,
+    height = 14
 )
-
-ggsave(filename = "cds_4.2020-11-24.png", width = 14, height = 14)
-
-plot_cells(
-    cds,
-    genes = c(
-        "KH2012:KH.C1.315",
-        "KH2012:KH.C11.574",
-        "KH2012:KH.C11.696",
-        "KH2012:KH.C2.54",
-        "KH2012:KH.C2.569",
-        "KH2012:KH.C4.675",
-        "KH2012:KH.C7.498",
-        "KH2012:KH.L170.55"
-    ),
-    label_cell_groups = FALSE,
-    label_leaves = FALSE,
-    label_root = FALSE,
-    label_branch_points = FALSE
-)
-
-ggsave(filename = "cds_5.2020-11-24.png", width = 21, height = 21)
 
 marker_test_res <- top_markers(
     cds,
@@ -184,7 +164,11 @@ plot_genes_by_group(
     top_specific_marker_ids,
     group_cells_by = "partition",
     ordering_type = "cluster_row_col",
-    max.size = 3
+    max.size = 5
+) %>%
+ggsave(
+    .,
+    filename = "cds_1_top_5.2020-11-27.png",
+    width = 14,
+    height = 28
 )
-
-ggsave(filename = "cds_6.2020-11-24.png", width = 14, height = 28)
