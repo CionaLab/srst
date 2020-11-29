@@ -16,13 +16,22 @@ analysis project. The data comes from [Cao
 1. Download the following files to `data` directory from the
     [Broad institute single cell portal](https://portals.broadinstitute.org/single_cell/study/SCP454/comprehensive-single-cell-transcriptome-lineages-of-a-proto-vertebrate):
 
-    | File name                           | SHA256                                                             |
-    |-------------------------------------|--------------------------------------------------------------------|
-    | expression_matrix_10stage.tsv.gz    | `522692396722709d65795df68572224c604521f9219a510daec0aa53b990133c` |
-    | ciona10stage.cluster.upload.new.txt | `aefa4ccb2ce436f78b3f788ae051d441834ca9b18a64f82e49d9fafb41e0e97b` |
+    | File name                             | SHA256                                                             |
+    |---------------------------------------|--------------------------------------------------------------------|
+    | `expression_matrix_10stage.tsv.gz`    | `522692396722709d65795df68572224c604521f9219a510daec0aa53b990133c` |
+    | `ciona10stage.cluster.upload.new.txt` | `aefa4ccb2ce436f78b3f788ae051d441834ca9b18a64f82e49d9fafb41e0e97b` |
 
 2. Decompress the file in place if necessary. Remove the extra header line in
     `ciona10stage.cluster.upload.new.txt`.
+
+3. Get the marker gene list from Takeo Horie <horie@shimoda.tsukuba.ac.jp>.
+
+    | File name          | SHA256                                                             |
+    |--------------------|--------------------------------------------------------------------|
+    | `marker gene.xlsx` | `f3038d1a8a25d741cb1948af8d1f7e0623709bc0d95ce1e4ea68cb50f9505684` |
+
+4. Extract sheet 4 from Takeo's list as a CSV file and names it
+    `gene_markers.csv`.
 
 ### Calculating differential expression
 
