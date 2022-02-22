@@ -69,10 +69,29 @@ order_cells(
     pull(name)
 )
 
+cds_subset <- cds[, meta_cell %>% pull(stage) == "larva"] %>%
+preprocess_cds(., num_dim = 100) %>%
+align_cds(., alignment_group = "replica") %>%
+reduce_dimension(
+    .,
+    umap.n_neighbors = 100
+) %>%
+cluster_cells(.) %>%
+learn_graph(., use_partition = FALSE)
+
 list(
     list(
-        cds,
-        color_cells_by = "stage",
+        cds_subset,
+        group_cells_by = "cluster",
+        label_cell_groups = TRUE,
+        label_leaves = FALSE,
+        label_root = FALSE,
+        label_branch_points = FALSE,
+        show_trajectory_graph = FALSE
+    ),
+    list(
+        cds_subset,
+        color_cells_by = "tissue_type",
         label_cell_groups = FALSE,
         label_leaves = FALSE,
         label_root = FALSE,
@@ -80,16 +99,8 @@ list(
         show_trajectory_graph = FALSE
     ),
     list(
-        cds,
-        color_cells_by = "pseudotime",
-        label_cell_groups = FALSE,
-        label_leaves = FALSE,
-        label_root = FALSE,
-        label_branch_points = FALSE
-    ),
-    list(
-        cds,
-        color_cells_by = "tissue_type",
+        cds_subset,
+        color_cells_by = "replica",
         label_cell_groups = FALSE,
         label_leaves = FALSE,
         label_root = FALSE,
@@ -99,19 +110,61 @@ list(
 ) %>%
 map(~ exec(plot_cells, !!!.)) %>%
 exec(ggarrange, !!!.) %>%
-ggsave(., filename = "cds_1.2020-11-27.png", height = 21)
+ggsave(., filename = "cds_larva.2022-02-18.png", height = 21)
 
-pr_test_res <- graph_test(cds, neighbor_graph = "principal_graph", cores = 64)
+list(
+    list(
+        cds_subset,
+        genes = c("KH2012:KH.C14.377"),
+        label_cell_groups = FALSE,
+        label_leaves = FALSE,
+        label_root = FALSE,
+        label_branch_points = FALSE,
+        show_trajectory_graph = FALSE
+    ),
+    list(
+        cds_subset,
+        genes = c("KH2012:KH.L96.86"),
+        label_cell_groups = FALSE,
+        label_leaves = FALSE,
+        label_root = FALSE,
+        label_branch_points = FALSE,
+        show_trajectory_graph = FALSE
+    ),
+    list(
+        cds_subset,
+        genes = c("KH2012:KH.C10.165"),
+        label_cell_groups = FALSE,
+        label_leaves = FALSE,
+        label_root = FALSE,
+        label_branch_points = FALSE,
+        show_trajectory_graph = FALSE
+    ),
+    list(
+        cds_subset,
+        genes = c("KH2012:KH.C10.454"),
+        label_cell_groups = FALSE,
+        label_leaves = FALSE,
+        label_root = FALSE,
+        label_branch_points = FALSE,
+        show_trajectory_graph = FALSE
+    )
+) %>%
+map(~ exec(plot_cells, !!!.)) %>%
+exec(ggarrange, !!!.) %>%
+ggsave(., filename = "cds_larva.genes.2022-02-18.png", height = 14, width = 14)
+
+pr_test_res <- graph_test(cds_subset, neighbor_graph = "principal_graph", cores = 64)
 pr_deg_ids <- row.names(subset(pr_test_res, q_value < 0.05))
 
 gene_module_df <- find_gene_modules(
-    cds[pr_deg_ids, ],
+    cds_subset[pr_deg_ids, ],
     resolution = c(10 ^ seq(-6, -1))
 )
 
 cell_group_df <- tibble::tibble(
-    cell = row.names(colData(cds)),
-    cell_group = partitions(cds)[colnames(cds)]
+    cell = row.names(colData(cds_subset)),
+    cell_group = partitions(cds_subset)[colnames(cds_subset)]
 )
 
 agg_mat <- aggregate_gene_expression(
@@ -122,6 +175,32 @@ agg_mat <- aggregate_gene_expression(
 row.names(agg_mat) <- stringr::str_c("Module ", row.names(agg_mat))
 colnames(agg_mat) <- stringr::str_c("Partition ", colnames(agg_mat))
 
+marker_test_res <- top_markers(
+    cds_subset,
+    group_cells_by = "cluster",
+    reference_cells = 1000,
+    cores = 64
+)
+
+top_specific_markers <- marker_test_res %>%
+filter(fraction_expressing >= 0.10) %>%
+group_by(cell_group) %>%
+top_n(10, pseudo_R2)
+
+top_specific_marker_ids <- unique(top_specific_markers %>% pull(gene_id))
+
+plot_genes_by_group(
+    cds_subset,
+    top_specific_marker_ids,
+    ordering_type = "maximal_on_diag"
+) %>%
+ggsave(
+    .,
+    filename = "cds_larva.top_gene.2022-02-18.png",
+    width = 14,
+    height = 49
+)
+
 pheatmap::pheatmap(
     agg_mat,
     cluster_rows = TRUE,
@@ -129,8 +208,243 @@ pheatmap::pheatmap(
     scale = "column",
     clustering_method = "ward.D2",
     fontsize = 6,
-    filename = "cds_1_module_heatmap_2020-11-27.png"
+    filename = "cds_1_module_heatmap_2022-02-18.png"
 )
+
+cds_subcl <- choose_cells(cds_subset)
+
+cds_subcl <- cds_subcl %>%
+preprocess_cds(., num_dim = 100) %>%
+align_cds(., alignment_group = "replica") %>%
+reduce_dimension(.) %>%
+cluster_cells(.) %>%
+learn_graph(., use_partition = FALSE)
+
+list(
+    list(
+        cds_subcl,
+        group_cells_by = "cluster",
+        label_cell_groups = TRUE,
+        label_leaves = FALSE,
+        label_root = FALSE,
+        label_branch_points = FALSE,
+        show_trajectory_graph = FALSE
+    ),
+    list(
+        cds_subcl,
+        color_cells_by = "tissue_type",
+        label_cell_groups = FALSE,
+        label_leaves = FALSE,
+        label_root = FALSE,
+        label_branch_points = FALSE,
+        show_trajectory_graph = FALSE
+    ),
+    list(
+        cds_subcl,
+        color_cells_by = "replica",
+        label_cell_groups = FALSE,
+        label_leaves = FALSE,
+        label_root = FALSE,
+        label_branch_points = FALSE,
+        show_trajectory_graph = FALSE
+    )
+) %>%
+map(~ exec(plot_cells, !!!.)) %>%
+exec(ggarrange, !!!.) %>%
+ggsave(., filename = "cds_neural_sub.2022-02-18.png", height = 14)
+
+list(
+    list(
+        cds_subcl,
+        genes = c("KH2012:KH.C14.377"),
+        label_cell_groups = FALSE,
+        label_leaves = FALSE,
+        label_root = FALSE,
+        label_branch_points = FALSE,
+        show_trajectory_graph = FALSE
+    ),
+    list(
+        cds_subcl,
+        genes = c("KH2012:KH.L96.86"),
+        label_cell_groups = FALSE,
+        label_leaves = FALSE,
+        label_root = FALSE,
+        label_branch_points = FALSE,
+        show_trajectory_graph = FALSE
+    ),
+    list(
+        cds_subcl,
+        genes = c("KH2012:KH.C10.165"),
+        label_cell_groups = FALSE,
+        label_leaves = FALSE,
+        label_root = FALSE,
+        label_branch_points = FALSE,
+        show_trajectory_graph = FALSE
+    ),
+    list(
+        cds_subcl,
+        genes = c("KH2012:KH.C10.454"),
+        label_cell_groups = FALSE,
+        label_leaves = FALSE,
+        label_root = FALSE,
+        label_branch_points = FALSE,
+        show_trajectory_graph = FALSE
+    )
+) %>%
+map(~ exec(plot_cells, !!!.)) %>%
+exec(ggarrange, !!!.) %>%
+ggsave(
+    .,
+    filename = "cds_neural_sub.genes.2022-02-18.png",
+    height = 10,
+    width = 10
+)
+
+list(
+    list(
+        cds_subcl,
+        genes = c("KH2012:KH.S761.6"),
+        label_cell_groups = FALSE,
+        label_leaves = FALSE,
+        label_root = FALSE,
+        label_branch_points = FALSE,
+        show_trajectory_graph = FALSE
+    ),
+    list(
+        cds_subcl,
+        genes = c("KH2012:KH.L22.28"),
+        label_cell_groups = FALSE,
+        label_leaves = FALSE,
+        label_root = FALSE,
+        label_branch_points = FALSE,
+        show_trajectory_graph = FALSE
+    ),
+    list(
+        cds_subcl,
+        genes = c("KH2012:KH.S1155.1"),
+        label_cell_groups = FALSE,
+        label_leaves = FALSE,
+        label_root = FALSE,
+        label_branch_points = FALSE,
+        show_trajectory_graph = FALSE
+    )
+) %>%
+map(~ exec(plot_cells, !!!.)) %>%
+exec(ggarrange, !!!.) %>%
+ggsave(
+    .,
+    filename = "cds_neural_sub.gaba.2022-02-18.png",
+    height = 14
+)
+
+list(
+    list(
+        cds_subcl,
+        genes = c("KH2012:KH.C3.324"),
+        label_cell_groups = FALSE,
+        label_leaves = FALSE,
+        label_root = FALSE,
+        label_branch_points = FALSE,
+        show_trajectory_graph = FALSE
+    ),
+    list(
+        cds_subcl,
+        genes = c("KH2012:KH.C1.1125"),
+        label_cell_groups = FALSE,
+        label_leaves = FALSE,
+        label_root = FALSE,
+        label_branch_points = FALSE,
+        show_trajectory_graph = FALSE
+    )
+) %>%
+map(~ exec(plot_cells, !!!.)) %>%
+exec(ggarrange, !!!.) %>%
+ggsave(
+    .,
+    filename = "cds_neural_sub.glut.2022-02-18.png",
+    height = 10
+)
+
+list(
+    list(
+        cds_subcl,
+        genes = c("KH2012:KH.L171.13"),
+        label_cell_groups = FALSE,
+        label_leaves = FALSE,
+        label_root = FALSE,
+        label_branch_points = FALSE,
+        show_trajectory_graph = FALSE
+    ),
+    list(
+        cds_subcl,
+        genes = c("KH2012:KH.C11.495"),
+        label_cell_groups = FALSE,
+        label_leaves = FALSE,
+        label_root = FALSE,
+        label_branch_points = FALSE,
+        show_trajectory_graph = FALSE
+    ),
+    list(
+        cds_subcl,
+        genes = c("KH2012:KH.C12.337"),
+        label_cell_groups = FALSE,
+        label_leaves = FALSE,
+        label_root = FALSE,
+        label_branch_points = FALSE,
+        show_trajectory_graph = FALSE
+    ),
+    list(
+        cds_subcl,
+        genes = c("KH2012:KH.C1.467"),
+        label_cell_groups = FALSE,
+        label_leaves = FALSE,
+        label_root = FALSE,
+        label_branch_points = FALSE,
+        show_trajectory_graph = FALSE
+    )
+) %>%
+map(~ exec(plot_cells, !!!.)) %>%
+exec(ggarrange, !!!.) %>%
+ggsave(
+    .,
+    filename = "cds_neural_sub.opsin.2022-02-18.png",
+    height = 10,
+    width = 10
+)
+
+marker_test_res <- top_markers(
+    cds_subcl,
+    reference_cells = 1000,
+    cores = 64
+)
+
+top_specific_markers <- marker_test_res %>%
+filter(fraction_expressing >= 0.10) %>%
+group_by(cell_group) %>%
+top_n(40, pseudo_R2)
+
+top_specific_marker_ids <- unique(top_specific_markers %>% pull(gene_id))
+
+plot_genes_by_group(
+    cds_subcl,
+    top_specific_marker_ids,
+    max.size = 5
+) %>%
+ggsave(
+    .,
+    filename = "cds_neural_sub.top_40.2020-11-27.png",
+    width = 14,
+    height = 28
+)
+
+subset_pr_test_res <- graph_test(
+    cds_subcl,
+    neighbor_graph = "principal_graph",
+    cores = 64
+)
+
+pr_deg_ids <- row.names(subset(subset_pr_test_res, q_value < 0.05))
+
 
 plot_cells(
     cds,
