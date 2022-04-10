@@ -9,6 +9,18 @@ as_matrix <- function(x) {
     y
 }
 
+plot_filename <- function(
+    ...,
+    date = format(Sys.time(), "%Y-%m-%d"),
+    format = "png"
+) {
+    paste(
+        c(..., date, format),
+        sep = ".",
+        collapse = "."
+    )
+}
+
 exprs <- read_tsv("data/expression_matrix_10stage.tsv") %>%
 as_matrix()
 
@@ -110,7 +122,11 @@ list(
 ) %>%
 map(~ exec(plot_cells, !!!.)) %>%
 exec(ggarrange, !!!.) %>%
-ggsave(., filename = "cds_larva.2022-02-18.png", height = 21)
+ggsave(
+    .,
+    filename = plot_filename("cds_larva"),
+    height = 21
+)
 
 list(
     list(
@@ -152,7 +168,12 @@ list(
 ) %>%
 map(~ exec(plot_cells, !!!.)) %>%
 exec(ggarrange, !!!.) %>%
-ggsave(., filename = "cds_larva.genes.2022-02-18.png", height = 14, width = 14)
+ggsave(
+    .,
+    filename = plot_filename("cds_larva", "genes"),
+    height = 14,
+    width = 14
+)
 
 list(
     list(
@@ -178,14 +199,7 @@ map(~ exec(plot_cells, !!!.)) %>%
 exec(ggarrange, !!!.) %>%
 ggsave(
     .,
-    filename = str_interp(
-        "${dataset}.${title}.${date}.png",
-        list(
-            dataset = "cds_larva",
-            title = "hox",
-            date = format(Sys.time(), "%Y-%m-%d"),
-        )
-    ),
+    filename = plot_filename("cds_larva", "hox"),
     height = 10,
     width = 7
 )
@@ -232,7 +246,7 @@ plot_genes_by_group(
 ) %>%
 ggsave(
     .,
-    filename = "cds_larva.top_gene.2022-02-18.png",
+    filename = plot_filename("cds_larva", "top_gene"),
     width = 14,
     height = 49
 )
@@ -244,7 +258,7 @@ pheatmap::pheatmap(
     scale = "column",
     clustering_method = "ward.D2",
     fontsize = 6,
-    filename = "cds_1_module_heatmap_2022-02-18.png"
+    filename = plot_filename("cds_1_module_heatmap")
 )
 
 cds_subcl <- choose_cells(cds_subset)
@@ -287,7 +301,11 @@ list(
 ) %>%
 map(~ exec(plot_cells, !!!.)) %>%
 exec(ggarrange, !!!.) %>%
-ggsave(., filename = "cds_neural_sub.2022-02-18.png", height = 14)
+ggsave(
+    .,
+    filename = plot_filename("cds_neural_sub"),
+    height = 14
+)
 
 list(
     list(
@@ -331,7 +349,7 @@ map(~ exec(plot_cells, !!!.)) %>%
 exec(ggarrange, !!!.) %>%
 ggsave(
     .,
-    filename = "cds_neural_sub.genes.2022-02-18.png",
+    filename = plot_filename("cds_neural_sub", "genes"),
     height = 10,
     width = 10
 )
@@ -360,14 +378,7 @@ map(~ exec(plot_cells, !!!.)) %>%
 exec(ggarrange, !!!.) %>%
 ggsave(
     .,
-    filename = str_interp(
-        "${dataset}.${title}.${date}.png",
-        list(
-            dataset = "cds_neural_sub",
-            title = "hox",
-            date = format(Sys.time(), "%Y-%m-%d"),
-        )
-    ),
+    filename = plot_filename("cds_neural_sub", "hox"),
     height = 10,
     width = 7
 )
@@ -405,7 +416,7 @@ map(~ exec(plot_cells, !!!.)) %>%
 exec(ggarrange, !!!.) %>%
 ggsave(
     .,
-    filename = "cds_neural_sub.gaba.2022-02-18.png",
+    filename = plot_filename("cds_neural_sub", "gaba"),
     height = 14
 )
 
@@ -433,7 +444,7 @@ map(~ exec(plot_cells, !!!.)) %>%
 exec(ggarrange, !!!.) %>%
 ggsave(
     .,
-    filename = "cds_neural_sub.glut.2022-02-18.png",
+    filename = plot_filename("cds_neural_sub", "glut"),
     height = 10
 )
 
@@ -479,7 +490,7 @@ map(~ exec(plot_cells, !!!.)) %>%
 exec(ggarrange, !!!.) %>%
 ggsave(
     .,
-    filename = "cds_neural_sub.opsin.2022-02-18.png",
+    filename = plot_filename("cds_neural_sub", "opsin"),
     height = 10,
     width = 10
 )
@@ -504,7 +515,7 @@ plot_genes_by_group(
 ) %>%
 ggsave(
     .,
-    filename = "cds_neural_sub.top_40.2020-11-27.png",
+    filename = plot_filename("cds_neural_sub", "top_40"),
     width = 14,
     height = 28
 )
@@ -527,7 +538,7 @@ plot_cells(
 ) %>%
 ggsave(
     .,
-    filename = "cds_1_modules.2020-11-27.png",
+    filename = plot_filename("cds_1_modules"),
     width = 21
 )
 
@@ -554,7 +565,7 @@ plot_genes_by_group(
 ) %>%
 ggsave(
     .,
-    filename = "cds_1_top_5.2020-11-27.png",
+    filename = plot_filename("cds_1_modules", "top_5"),
     width = 14,
     height = 28
 )
