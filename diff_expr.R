@@ -154,6 +154,42 @@ map(~ exec(plot_cells, !!!.)) %>%
 exec(ggarrange, !!!.) %>%
 ggsave(., filename = "cds_larva.genes.2022-02-18.png", height = 14, width = 14)
 
+list(
+    list(
+        cds_subset,
+        genes = c("KH2012:KH.C14.377"),
+        label_cell_groups = FALSE,
+        label_leaves = FALSE,
+        label_root = FALSE,
+        label_branch_points = FALSE,
+        show_trajectory_graph = FALSE
+    ),
+    list(
+        cds_subset,
+        genes = c("KH2012:KH.L132.17"),
+        label_cell_groups = FALSE,
+        label_leaves = FALSE,
+        label_root = FALSE,
+        label_branch_points = FALSE,
+        show_trajectory_graph = FALSE
+    )
+) %>%
+map(~ exec(plot_cells, !!!.)) %>%
+exec(ggarrange, !!!.) %>%
+ggsave(
+    .,
+    filename = str_interp(
+        "${dataset}.${title}.${date}.png",
+        list(
+            dataset = "cds_larva",
+            title = "hox",
+            date = format(Sys.time(), "%Y-%m-%d"),
+        )
+    ),
+    height = 10,
+    width = 7
+)
+
 pr_test_res <- graph_test(cds_subset, neighbor_graph = "principal_graph", cores = 64)
 pr_deg_ids <- row.names(subset(pr_test_res, q_value < 0.05))
 
@@ -298,6 +334,42 @@ ggsave(
     filename = "cds_neural_sub.genes.2022-02-18.png",
     height = 10,
     width = 10
+)
+
+list(
+    list(
+        cds_subcl,
+        genes = c("KH2012:KH.C14.377"),
+        label_cell_groups = FALSE,
+        label_leaves = FALSE,
+        label_root = FALSE,
+        label_branch_points = FALSE,
+        show_trajectory_graph = FALSE
+    ),
+    list(
+        cds_subcl,
+        genes = c("KH2012:KH.L132.17"),
+        label_cell_groups = FALSE,
+        label_leaves = FALSE,
+        label_root = FALSE,
+        label_branch_points = FALSE,
+        show_trajectory_graph = FALSE
+    )
+) %>%
+map(~ exec(plot_cells, !!!.)) %>%
+exec(ggarrange, !!!.) %>%
+ggsave(
+    .,
+    filename = str_interp(
+        "${dataset}.${title}.${date}.png",
+        list(
+            dataset = "cds_neural_sub",
+            title = "hox",
+            date = format(Sys.time(), "%Y-%m-%d"),
+        )
+    ),
+    height = 10,
+    width = 7
 )
 
 list(
