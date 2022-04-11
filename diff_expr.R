@@ -1,6 +1,7 @@
 library(monocle3)
 library(tidyverse)
 library(egg)
+library(broom)
 
 as_matrix <- function(x) {
     if (!tibble::is_tibble(x)) stop("x must be a tibble")
@@ -571,3 +572,35 @@ ggsave(
     width = 14,
     height = 28
 )
+
+# Choosing otp positive cells
+cds_otp <- choose_cells(cds_subcl)
+
+mat_channels <- (
+    cds_otp[
+        c(
+            # "KH2012:KH.C14.377",
+            "KH2012:KH.C13.80",
+            "KH2012:KH.L108.20",
+            "KH2012:KH.S346.10",
+            "KH2012:KH.C10.454"
+        )
+    ] %>% assays()
+)$counts
+
+df_voltage_gated <- mat_channels %>%
+tidy() %>%
+rename(cell = column, gene = row, expression = value) %>%
+inner_join(meta_gene, by = c(gene = "name")) %>%
+inner_join(meta_cell, by = c(cell = "name"))
+
+(
+    ggplot(
+        df_voltage_gated,
+        aes(y = expression, x = gene, fill = gene)
+    ) +
+    geom_violin() +
+    geom_jitter(width = 0.1) +
+    theme(legend.position="none")
+) %>%
+ggsave(filename = plot_filename("cds_otp", "channels"))
