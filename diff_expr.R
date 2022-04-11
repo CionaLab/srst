@@ -201,7 +201,12 @@ ggsave(
     width = 7
 )
 
-pr_test_res <- graph_test(cds_subset, neighbor_graph = "principal_graph", cores = 64)
+pr_test_res <- graph_test(
+    cds_subset,
+    neighbor_graph = "principal_graph",
+    cores = 64
+)
+
 pr_deg_ids <- row.names(subset(pr_test_res, q_value < 0.05))
 
 gene_module_df <- find_gene_modules(
