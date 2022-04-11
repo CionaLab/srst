@@ -48,13 +48,10 @@ mutate(
     )
 )
 
-meta_gene <- read_csv("data/gene_markers.csv") %>%
-select(gene, gene_short_name = anno1) %>%
-distinct() %>%
-left_join(
+meta_gene <- left_join(
     tibble(name = rownames(exprs)),
-    .,
-    by = c("name" = "gene")
+    read_csv("data/gene_names.csv"),
+    by = c("name" = "gene_id")
 ) %>%
 mutate(
     gene_short_name = coalesce(gene_short_name, name),

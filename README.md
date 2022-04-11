@@ -24,14 +24,14 @@ analysis project. The data comes from [Cao
 2. Decompress the file in place if necessary. Remove the extra header line in
     `ciona10stage.cluster.upload.new.txt`.
 
-3. Get the marker gene list from Takeo Horie <horie@shimoda.tsukuba.ac.jp>.
+3. Get the BLAST result from [Aniseed](https://www.aniseed.cnrs.fr/aniseed/download/?file=data%2Fcirobu%2FGeneModel_bbh_mapping.zip).
 
-    | File name          | SHA256                                                             |
-    |--------------------|--------------------------------------------------------------------|
-    | `marker gene.xlsx` | `f3038d1a8a25d741cb1948af8d1f7e0623709bc0d95ce1e4ea68cb50f9505684` |
+    | File name                   | SHA256                                                             |
+    |-----------------------------|--------------------------------------------------------------------|
+    | `GeneModel_bbh_mapping.zip` | `59f8077fb1b6b24dce642c40affc5ae1d934eb413932eb467af0c25407426f35` |
 
-4. Extract sheet 4 from Takeo's list as a CSV file and names it
-    `gene_markers.csv`.
+4. Extract KH2012 to BLAST from `GeneModel_bbh_mapping.blast` as a CSV file and
+    names it `gene_names.csv`.
 
 ### Calculating differential expression
 
