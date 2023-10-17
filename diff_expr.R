@@ -66,10 +66,7 @@ cds <- new_cell_data_set(
 ) %>%
 preprocess_cds(., num_dim = 100) %>%
 align_cds(., alignment_group = "stage") %>%
-reduce_dimension(
-    .,
-    umap.n_neighbors = 100
-) %>%
+reduce_dimension(.) %>%
 cluster_cells(.) %>%
 learn_graph(., use_partition = FALSE) %>%
 order_cells(
@@ -82,10 +79,7 @@ order_cells(
 cds_subset <- cds[, meta_cell %>% pull(stage) == "larva"] %>%
 preprocess_cds(., num_dim = 100) %>%
 align_cds(., alignment_group = "replica") %>%
-reduce_dimension(
-    .,
-    umap.n_neighbors = 100
-) %>%
+reduce_dimension(.) %>%
 cluster_cells(.) %>%
 learn_graph(., use_partition = FALSE)
 
@@ -123,83 +117,35 @@ exec(ggarrange, !!!.) %>%
 ggsave(
     .,
     filename = plot_filename("cds_larva"),
-    height = 21
+    width = 4,
+    height = 10
 )
 
 list(
     list(
         cds_subset,
-        genes = c("KH2012:KH.C14.377"),
+        genes = c(
+            "KH2012:KH.C2.526",
+            "KH2012:KH.L132.17",
+            "KH2012:KH.C14.377",
+            "KH2012:KH.C10.454",
+            "KH2012:KH.C10.165"
+        ),
         label_cell_groups = FALSE,
         label_leaves = FALSE,
         label_root = FALSE,
         label_branch_points = FALSE,
-        show_trajectory_graph = FALSE
-    ),
-    list(
-        cds_subset,
-        genes = c("KH2012:KH.L96.86"),
-        label_cell_groups = FALSE,
-        label_leaves = FALSE,
-        label_root = FALSE,
-        label_branch_points = FALSE,
-        show_trajectory_graph = FALSE
-    ),
-    list(
-        cds_subset,
-        genes = c("KH2012:KH.C10.165"),
-        label_cell_groups = FALSE,
-        label_leaves = FALSE,
-        label_root = FALSE,
-        label_branch_points = FALSE,
-        show_trajectory_graph = FALSE
-    ),
-    list(
-        cds_subset,
-        genes = c("KH2012:KH.C10.454"),
-        label_cell_groups = FALSE,
-        label_leaves = FALSE,
-        label_root = FALSE,
-        label_branch_points = FALSE,
-        show_trajectory_graph = FALSE
+        show_trajectory_graph = FALSE,
+        scale_to_range = FALSE
     )
 ) %>%
 map(~ exec(plot_cells, !!!.)) %>%
 exec(ggarrange, !!!.) %>%
 ggsave(
     .,
-    filename = plot_filename("cds_larva", "genes"),
-    height = 14,
-    width = 14
-)
-
-list(
-    list(
-        cds_subset,
-        genes = c("KH2012:KH.C14.377"),
-        label_cell_groups = FALSE,
-        label_leaves = FALSE,
-        label_root = FALSE,
-        label_branch_points = FALSE,
-        show_trajectory_graph = FALSE
-    ),
-    list(
-        cds_subset,
-        genes = c("KH2012:KH.L132.17"),
-        label_cell_groups = FALSE,
-        label_leaves = FALSE,
-        label_root = FALSE,
-        label_branch_points = FALSE,
-        show_trajectory_graph = FALSE
-    )
-) %>%
-map(~ exec(plot_cells, !!!.)) %>%
-exec(ggarrange, !!!.) %>%
-ggsave(
-    .,
-    filename = plot_filename("cds_larva", "hox"),
-    height = 10,
-    width = 7
+    filename = plot_filename("cds_larva", "vgat", "hox10", "otp", "hcn"),
+    width = 10,
+    height = 8
 )
 
 pr_test_res <- graph_test(
@@ -231,20 +177,21 @@ colnames(agg_mat) <- stringr::str_c("Partition ", colnames(agg_mat))
 marker_test_res <- top_markers(
     cds_subset,
     group_cells_by = "cluster",
-    reference_cells = 1000,
+    genes_to_test_per_group = 50,
     cores = 64
 )
 
 top_specific_markers <- marker_test_res %>%
 filter(fraction_expressing >= 0.10) %>%
 group_by(cell_group) %>%
-top_n(10, pseudo_R2)
+top_n(1, pseudo_R2)
 
 top_specific_marker_ids <- unique(top_specific_markers %>% pull(gene_id))
 
 plot_genes_by_group(
     cds_subset,
     top_specific_marker_ids,
+    group_cells_by = "cluster",
     ordering_type = "maximal_on_diag"
 ) %>%
 ggsave(
@@ -306,14 +253,14 @@ map(~ exec(plot_cells, !!!.)) %>%
 exec(ggarrange, !!!.) %>%
 ggsave(
     .,
-    filename = plot_filename("cds_neural_sub"),
+    filename = plot_filename("cds_larva", "neural"),
     height = 14
 )
 
 list(
     list(
         cds_subcl,
-        genes = c("KH2012:KH.C14.377"),
+        genes = c("KH2012:KH.L147.13"),
         label_cell_groups = FALSE,
         label_leaves = FALSE,
         label_root = FALSE,
@@ -322,7 +269,7 @@ list(
     ),
     list(
         cds_subcl,
-        genes = c("KH2012:KH.L96.86"),
+        genes = c("KH2012:KH.L147.36"),
         label_cell_groups = FALSE,
         label_leaves = FALSE,
         label_root = FALSE,
@@ -331,16 +278,7 @@ list(
     ),
     list(
         cds_subcl,
-        genes = c("KH2012:KH.C10.165"),
-        label_cell_groups = FALSE,
-        label_leaves = FALSE,
-        label_root = FALSE,
-        label_branch_points = FALSE,
-        show_trajectory_graph = FALSE
-    ),
-    list(
-        cds_subcl,
-        genes = c("KH2012:KH.C10.454"),
+        genes = c("KH2012:KH.L147.29"),
         label_cell_groups = FALSE,
         label_leaves = FALSE,
         label_root = FALSE,
@@ -352,150 +290,9 @@ map(~ exec(plot_cells, !!!.)) %>%
 exec(ggarrange, !!!.) %>%
 ggsave(
     .,
-    filename = plot_filename("cds_neural_sub", "genes"),
-    height = 10,
-    width = 10
-)
-
-list(
-    list(
-        cds_subcl,
-        genes = c("KH2012:KH.C14.377"),
-        label_cell_groups = FALSE,
-        label_leaves = FALSE,
-        label_root = FALSE,
-        label_branch_points = FALSE,
-        show_trajectory_graph = FALSE
-    ),
-    list(
-        cds_subcl,
-        genes = c("KH2012:KH.L132.17"),
-        label_cell_groups = FALSE,
-        label_leaves = FALSE,
-        label_root = FALSE,
-        label_branch_points = FALSE,
-        show_trajectory_graph = FALSE
-    )
-) %>%
-map(~ exec(plot_cells, !!!.)) %>%
-exec(ggarrange, !!!.) %>%
-ggsave(
-    .,
-    filename = plot_filename("cds_neural_sub", "hox"),
+    filename = plot_filename("cds_larva", "neural", "4"),
     height = 10,
     width = 7
-)
-
-list(
-    list(
-        cds_subcl,
-        genes = c("KH2012:KH.S761.6"),
-        label_cell_groups = FALSE,
-        label_leaves = FALSE,
-        label_root = FALSE,
-        label_branch_points = FALSE,
-        show_trajectory_graph = FALSE
-    ),
-    list(
-        cds_subcl,
-        genes = c("KH2012:KH.L22.28"),
-        label_cell_groups = FALSE,
-        label_leaves = FALSE,
-        label_root = FALSE,
-        label_branch_points = FALSE,
-        show_trajectory_graph = FALSE
-    ),
-    list(
-        cds_subcl,
-        genes = c("KH2012:KH.S1155.1"),
-        label_cell_groups = FALSE,
-        label_leaves = FALSE,
-        label_root = FALSE,
-        label_branch_points = FALSE,
-        show_trajectory_graph = FALSE
-    )
-) %>%
-map(~ exec(plot_cells, !!!.)) %>%
-exec(ggarrange, !!!.) %>%
-ggsave(
-    .,
-    filename = plot_filename("cds_neural_sub", "gaba"),
-    height = 14
-)
-
-list(
-    list(
-        cds_subcl,
-        genes = c("KH2012:KH.C3.324"),
-        label_cell_groups = FALSE,
-        label_leaves = FALSE,
-        label_root = FALSE,
-        label_branch_points = FALSE,
-        show_trajectory_graph = FALSE
-    ),
-    list(
-        cds_subcl,
-        genes = c("KH2012:KH.C1.1125"),
-        label_cell_groups = FALSE,
-        label_leaves = FALSE,
-        label_root = FALSE,
-        label_branch_points = FALSE,
-        show_trajectory_graph = FALSE
-    )
-) %>%
-map(~ exec(plot_cells, !!!.)) %>%
-exec(ggarrange, !!!.) %>%
-ggsave(
-    .,
-    filename = plot_filename("cds_neural_sub", "glut"),
-    height = 10
-)
-
-list(
-    list(
-        cds_subcl,
-        genes = c("KH2012:KH.L171.13"),
-        label_cell_groups = FALSE,
-        label_leaves = FALSE,
-        label_root = FALSE,
-        label_branch_points = FALSE,
-        show_trajectory_graph = FALSE
-    ),
-    list(
-        cds_subcl,
-        genes = c("KH2012:KH.C11.495"),
-        label_cell_groups = FALSE,
-        label_leaves = FALSE,
-        label_root = FALSE,
-        label_branch_points = FALSE,
-        show_trajectory_graph = FALSE
-    ),
-    list(
-        cds_subcl,
-        genes = c("KH2012:KH.C12.337"),
-        label_cell_groups = FALSE,
-        label_leaves = FALSE,
-        label_root = FALSE,
-        label_branch_points = FALSE,
-        show_trajectory_graph = FALSE
-    ),
-    list(
-        cds_subcl,
-        genes = c("KH2012:KH.C1.467"),
-        label_cell_groups = FALSE,
-        label_leaves = FALSE,
-        label_root = FALSE,
-        label_branch_points = FALSE,
-        show_trajectory_graph = FALSE
-    )
-) %>%
-map(~ exec(plot_cells, !!!.)) %>%
-exec(ggarrange, !!!.) %>%
-ggsave(
-    .,
-    filename = plot_filename("cds_neural_sub", "opsin"),
-    height = 10,
-    width = 10
 )
 
 marker_test_res <- top_markers(
