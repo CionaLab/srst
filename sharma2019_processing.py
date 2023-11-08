@@ -1,0 +1,39 @@
+import scanpy as sc
+
+adata = sc.read_h5ad("sharma2019_ky21_raw.h5ad")
+
+sc.pp.filter_cells(adata, min_genes=200)
+sc.pp.filter_genes(adata, min_cells=3)
+
+# annotate the group of mitochondrial genes as 'mt'
+adata.var["mt"] = adata.var_names.str.startswith("ENSCIN")
+sc.pp.calculate_qc_metrics(
+    adata, qc_vars=["mt"], percent_top=None, log1p=False, inplace=True
+)
+sc.pl.violin(
+    adata,
+    ["n_genes_by_counts", "total_counts", "pct_counts_mt"],
+    jitter=0.4,
+)
+
+adata = adata[adata.obs.n_genes_by_counts < 3000, :]
+adata = adata[adata.obs.pct_counts_mt < 20, :]
+
+
+sc.pp.normalize_total(adata, target_sum=1e4)
+sc.pp.log1p(adata)
+sc.pp.highly_variable_genes(adata, min_mean=0.0125, max_mean=3, min_disp=0.5)
+
+adata.raw = adata
+
+adata = adata[:, adata.var.highly_variable]
+sc.pp.regress_out(adata, ["total_counts", "pct_counts_mt"])
+
+sc.tl.pca(adata, svd_solver="arpack")
+sc.pp.neighbors(adata, n_neighbors=10, n_pcs=40)
+sc.tl.leiden(adata)
+sc.tl.paga(adata)
+sc.pl.paga(adata, plot=False)
+sc.tl.umap(adata, init_pos="paga")
+
+adata.write("sharma2019_ky21.h5ad")
