@@ -1,21 +1,82 @@
 # %%
+import re
+from itertools import product
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import scanpy as sc
+import seaborn as sns
 
 from npisc.build_matrix import (
     preprocess_tsv,
     build_from_df,
     split_adata,
-    get_cos_similarity,
+    get_distance,
+    to_df,
     pairwise,
     find_similar_clusters,
     plot_distance,
 )
 
 # %%
+PATTERN_STAGES = r"(early|mid|late) (gastrula|neurula)"
+PATTERN_CELLS = r"[Aa]\d+\.\d+$"
+
+STAGES_IN_SITU = [
+    ("mid gastrula", "mid_gastrula.geojson", 6, "midG"),
+    ("late gastrula", "late_gastrula.geojson", 7, "latG"),
+    ("early neurula", "early_neurula.geojson", 10, "earN"),
+    ("mid neurula", "mid_neurula.geojson", 11, "midN"),
+    ("late neurula", "late_neurula.geojson", 12, "latN"),
+]
+
+# %%
+df = pd.read_csv("npisc/pass_02.tsv", sep="\t")
+df_map = pd.read_csv("npisc/kh2012_ky2021_map.tsv", sep="\t")
+df_map["query"] = "KH2012:" + df_map["query"]
+df_map["subject"] = "KY21:" + df_map["subject"]
+df["Gene"] = df["Gene"].apply(lambda x: x.split(" ")[0])
+df = pd.merge(df, df_map, how="left", left_on="Gene", right_on="query")
+df = df.drop(columns=["Gene", "query"])
+df = df.rename(columns={"subject": "Gene"})
+
+df["Stage"] = df["Stage"].apply(lambda x: (" ".join(re.findall(PATTERN_STAGES, x)[0])))
+df = df[df["Territory_eq"].str.contains(PATTERN_CELLS)]
+df = df[["Stage", "Gene", "Territory_eq"]].drop_duplicates()
+
+dfs = dict(tuple(df.groupby("Stage")))
+
+count_dfs = {
+    stage: df.groupby("Territory_eq")["Gene"]
+    .nunique()
+    .reset_index()
+    .rename(columns={"Gene": "n"})
+    for stage, df in dfs.items()
+}
+
+pattern_dfs = {
+    stage: pd.pivot_table(
+        df,
+        values="Gene",
+        index="Territory_eq",
+        columns="Gene",
+        aggfunc="size",
+        fill_value=0,
+    ).astype(bool)
+    for stage, df in dfs.items()
+}
+
+pattern_df = pd.concat(
+    [df.rename(index=lambda x: f"{key}_{x}") for key, df in pattern_dfs.items()],
+    axis=0,
+    sort=False,
+).fillna(False)
+
+# %%
 adata = sc.read_h5ad("cao2019_ky21.h5ad")
+
+# %%
 adatas = split_adata(adata, "stage")
 
 # %%
@@ -32,14 +93,16 @@ for key in adatas.keys():
     adata.write_h5ad(f"cao2019_npisc_ky21_{key}.h5ad")
 
 # %%
-stages = ["midG", "earN", "latN", "iniT", "earT", "midT", "latTI", "latTII", "larva"]
+STAGES_SC = ["midG", "earN", "latN", "iniT", "earT", "midT", "latTI", "latTII", "larva"]
 
 plots = ["leiden", "KY21:KY21.Chr2.490"]
 
-adatas = {stage: sc.read_h5ad(f"cao2019_npisc_ky21_{stage}.h5ad") for stage in stages}
+adatas = {
+    stage: sc.read_h5ad(f"cao2019_npisc_ky21_{stage}.h5ad") for stage in STAGES_SC
+}
 
 # %%
-for s1, s2 in pairwise(stages):
+for s1, s2 in pairwise(STAGES_SC):
     df = find_similar_clusters(adatas[s1], adatas[s2])
     df.to_csv(f"map_{s1}_{s2}.csv")
     print(s1, s2)
@@ -48,7 +111,7 @@ for s1, s2 in pairwise(stages):
 
 # %%
 
-for s in stages:
+for s in STAGES_SC:
     print(s)
     sc.pl.dotplot(adatas[s], ["KY21:KY21.Chr3.483"], groupby="leiden", vmin=0, vmax=4)
     sc.pl.umap(adatas[s], color=["KY21:KY21.Chr3.483"])
@@ -70,117 +133,100 @@ map_stage = {
     "mid neurula": "midN",
 }
 
-stages = {
+STAGES_SC = {
     map_stage.get(stage, None): build_from_df(stage_df)
     for stage, stage_df in df.groupby("Stage")
 }
 
 # %%
-for key, value in stages.items():
-    print(key)
-    try:
-        df = get_cos_similarity(value, adatas[key])
-        group = adatas[key].obs["leiden"]
-        mean_sim = df.groupby(group, axis=1).mean()
-        plot_distance(mean_sim)
-    except KeyError:
-        pass
+for (s1, m1), (s2, m2) in product(pattern_dfs.items(), adatas.items()):
+    print(s1, s2)
+    df = get_distance(m1, m2, metric="cosine")
+    print(df)
 
 # %%
-genes = [
-    f"KY21:{gene}"
-    for gene in [
-        "KY21.Chr2.490",
-        "KY21.Chr3.244",
-        # "KY21.Chr3.483",
-        # "KY21.Chr4.922",
-        # "KY21.Chr1.783",
-        # "KY21.Chr6.24",
-        # "KY21.Chr11.1113",
-        # "KY21.Chr10.362",
-        # "KY21.Chr11.1087",
-        # "KY21.Chr1.783",
-        # "KY21.Chr2.1082",
-        # "KY21.Chr11.539"
-        # "KY21.Chr3.511",
-        # "KY21.Chr1.838",
-        # "KY21.Chr1.563",
-        # "KY21.Chr4.768",
-        # "KY21.Chr2.793",
-        # "KY21.Chr3.483",
-        # "KY21.Chr11.539",
-    ]
+
+df1 = to_df(adatas["midG"])
+df2 = to_df(pattern_dfs["mid gastrula"])
+
+# all_cols = df1.columns.union(df2.columns)
+# df1 = df1.reindex(columns=all_cols, fill_value=0)
+
+# df1 = df1.loc[:, df2.columns]
+# df1 = ((df1.T - df1.mean(axis=1)) / df1.std(axis=1)).T
+# # df1 = ((df1 - df1.mean(axis=0)) / df1.std(axis=0))
+# df1.fillna(0, inplace=True)
+
+df = 1 - get_distance(df2, df1, metric="cosine").T
+sns.clustermap(df, cmap="viridis", xticklabels=True, yticklabels=False)
+
+# %%
+adatas["midG"].obs = adatas["midG"].obs.join(df)
+
+for c in df.columns:
+    sc.pl.umap(adatas["midG"], color=[c])
+
+sc.pl.umap(adatas["midG"], color=["leiden"], legend_loc="on data")
+
+# %%
+adata_filtered = adatas["midG"][
+    adatas["midG"].obs["leiden"].isin(["4", "6", "10", "21"])
 ]
 
-plots = ["leiden"] + genes
+sc.tl.pca(adata_filtered, svd_solver="arpack")
+sc.pp.neighbors(adata_filtered, n_neighbors=10, n_pcs=40)
+sc.tl.leiden(adata_filtered)
+sc.tl.paga(adata_filtered)
+sc.pl.paga(adata_filtered, plot=False)
+sc.tl.umap(adata_filtered, init_pos="paga")
+adata_filtered.write(f"cao2019_npisc_ky21_midG_np.h5ad")
 
 # %%
+adata_filtered = sc.read_h5ad("cao2019_npisc_ky21_midG_np.h5ad")
+df1 = to_df(adata_filtered)
+df2 = to_df(pattern_dfs["mid gastrula"])
 
-for key, value in adatas.items():
-    print(key)
-    # sc.pl.umap(value, color=["KY21:KY21.Chr2.490", "KY21:KY21.Chr11.539"])
-    # sc.pl.umap(value, color=["KY21:KY21.Chr2.490", "KY21:KY21.Chr3.483"])
-    # sc.pl.umap(value, color=["KY21:KY21.Chr2.490", "KY21:KY21.Chr12.157"])
-    for p in plots:
-        sc.pl.umap(value, color=[p], vmin=0, vmax=4)
+df = 1 - get_distance(df2, df1, metric="cosine").T
+sns.clustermap(df, cmap="viridis", xticklabels=True, yticklabels=False)
+adata_filtered.obs = adata_filtered.obs.join(df)
+adata_filtered.obs["top_three"] = df.apply(
+    lambda s: ", ".join(s.nlargest(1).index.tolist()), axis=1
+)
+adata_filtered.obs["top_three"] = adata_filtered.obs["top_three"].astype("category")
 
+for c in df.columns:
+    sc.pl.umap(adata_filtered, color=[c])
 
-# %%
-
-for p in plots:
-    sc.pl.umap(
-        adata,
-        color=[p],
-    )
-
-# %%
-for key, value in adatas.items():
-    sc.tl.pca(value, svd_solver="arpack")
-    sc.pp.neighbors(value, n_neighbors=10, n_pcs=40)
-    sc.tl.leiden(value)
-    sc.tl.paga(value)
-    sc.pl.paga(
-        value, plot=False
-    )  # remove `plot=False` if you want to see the coarse-grained graph
-    sc.tl.umap(value, init_pos="paga")
-    value.write(f"cao2019_npisc_ky21_{key}.h5ad")
-
-# %%
-for key in adatas.keys():
-    value = sc.read_h5ad(f"cao2019_npisc_ky21_{key}.h5ad")
-    print(key)
-    # for p in plots:
-    #     sc.pl.umap(value, color=[p], vmin=0, vmax=4)
-    sc.pl.dotplot(value, genes, groupby="leiden", vmin=0, vmax=4)
+sc.pl.umap(adata_filtered, color=["leiden"], legend_loc="on data")
+sc.pl.umap(adata_filtered, color=["top_three"])
 
 # %%
 num_top = 50
-for key in adatas.keys():
-    value = sc.read_h5ad(f"cao2019_npisc_ky21_{key}.h5ad")
-    sc.tl.rank_genes_groups(value, f"leiden", method="t-test")
-    result = value.uns["rank_genes_groups"]
-    groups = result["names"].dtype.names
+value = sc.read_h5ad("cao2019_npisc_ky21_midG_np.h5ad")
+sc.tl.rank_genes_groups(value, f"leiden", method="t-test")
+result = value.uns["rank_genes_groups"]
+groups = result["names"].dtype.names
 
-    df = pd.concat(
-        [
-            pd.DataFrame(
-                {
-                    "group": group,
-                    "gene": result["names"][group],
-                    "p_adj": result["pvals_adj"][group],
-                    "log2fc": result["logfoldchanges"][group],
-                }
-            )
-            for group in groups
-        ]
-    )
+df = pd.concat(
+    [
+        pd.DataFrame(
+            {
+                "group": group,
+                "gene": result["names"][group],
+                "p_adj": result["pvals_adj"][group],
+                "log2fc": result["logfoldchanges"][group],
+            }
+        )
+        for group in groups
+    ]
+)
 
-    df.groupby("group").apply(
-        lambda g: g[g["p_adj"] < 0.05]  # Filter step
-        .sort_values(by="log2fc", ascending=False)  # Sort step
-        .head(num_top)  # Select top 50 step
-    ).reset_index(drop=True).to_csv(
-        f"cao2019_npisc_diff_{key}_top{num_top}.csv", index=False
-    )
+df.groupby("group").apply(
+    lambda g: g[g["p_adj"] < 0.05]  # Filter step
+    .sort_values(by="log2fc", ascending=False)  # Sort step
+    .head(num_top)  # Select top 50 step
+).reset_index(drop=True).to_csv(
+    f"cao2019_npisc_ky21_midG_np_top{num_top}.csv", index=False
+)
 
 # %%
