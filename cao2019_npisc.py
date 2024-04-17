@@ -14,7 +14,7 @@ from npisc.build_matrix import (
     split_adata,
     get_distance,
     to_df,
-    pairwise,
+    adjacent,
     find_similar_clusters,
     plot_distance,
 )
@@ -102,7 +102,7 @@ adatas = {
 }
 
 # %%
-for s1, s2 in pairwise(STAGES_SC):
+for s1, s2 in adjacent(STAGES_SC):
     df = find_similar_clusters(adatas[s1], adatas[s2])
     df.to_csv(f"map_{s1}_{s2}.csv")
     print(s1, s2)
