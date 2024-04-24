@@ -7,6 +7,8 @@ import numpy as np
 import pandas as pd
 import scanpy as sc
 import seaborn as sns
+from pandas.core.frame import DataFrame
+from anndata import AnnData
 
 from npisc.build_matrix import (
     preprocess_tsv,
@@ -159,6 +161,40 @@ df2 = to_df(pattern_dfs["mid gastrula"])
 
 df = 1 - get_distance(df2, df1, metric="cosine").T
 sns.clustermap(df, cmap="viridis", xticklabels=True, yticklabels=False)
+
+
+# %%
+def find_coi(
+    df: DataFrame,
+    adata: AnnData,
+    cluster: str = "leiden",
+    blastomere: str = "Territory_eq",
+) -> DataFrame:
+    """
+    This function finds the clusters of interest based on the expression similarity to blastomeres in the DataFrame.
+
+    Parameters:
+    - df (pandas.DataFrame): The input DataFrame containing the similarity matrix.
+    - adata (anndata.AnnData): The input AnnData object.
+    - cluster (str, optional): The column name in adata.obs based on which the clusters of interest are determined. Default is "leiden".
+    - blastomere (str, optional): The column name in adata.obs representing the blastomere. Default is "Territory_eq".
+
+    Returns:
+    - pandas.DataFrame: A DataFrame containing the maximum values for each cluster based on the specified blastomere.
+    """
+    df = (
+        df.melt(ignore_index=False)
+        .join(adata.obs[cluster])
+        .groupby([cluster, blastomere])
+        .median()
+        .reset_index()
+    )
+    return df.loc[df.groupby(cluster)["value"].idxmax()].sort_values(
+        "value", ascending=False
+    )
+
+# %%
+find_coi(df, adatas["midG"])
 
 # %%
 adatas["midG"].obs = adatas["midG"].obs.join(df)
