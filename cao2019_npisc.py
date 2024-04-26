@@ -146,22 +146,6 @@ for (s1, m1), (s2, m2) in product(pattern_dfs.items(), adatas.items()):
     df = get_distance(m1, m2, metric="cosine")
     print(df)
 
-# %%
-
-df1 = to_df(adatas["midG"])
-df2 = to_df(pattern_dfs["mid gastrula"])
-
-# all_cols = df1.columns.union(df2.columns)
-# df1 = df1.reindex(columns=all_cols, fill_value=0)
-
-# df1 = df1.loc[:, df2.columns]
-# df1 = ((df1.T - df1.mean(axis=1)) / df1.std(axis=1)).T
-# # df1 = ((df1 - df1.mean(axis=0)) / df1.std(axis=0))
-# df1.fillna(0, inplace=True)
-
-df = 1 - get_distance(df2, df1, metric="cosine").T
-sns.clustermap(df, cmap="viridis", xticklabels=True, yticklabels=False)
-
 
 # %%
 def find_coi(
@@ -193,8 +177,20 @@ def find_coi(
         "value", ascending=False
     )
 
+
 # %%
-find_coi(df, adatas["midG"])
+
+STAGES_SUBCLUSTER = [
+    ("mid gastrula", "midG"),
+    ("early neurula", "earN"),
+    ("late neurula", "latN"),
+]
+
+# %%
+for k1, k2 in STAGES_SUBCLUSTER:
+    df = 1 - get_distance(pattern_dfs[k1], adatas[k2], metric="cosine").T
+    sns.clustermap(df, cmap="viridis", xticklabels=True, yticklabels=False)
+    print(find_coi(df, adatas[k2]))
 
 # %%
 adatas["midG"].obs = adatas["midG"].obs.join(df)
