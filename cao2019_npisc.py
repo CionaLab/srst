@@ -152,44 +152,45 @@ for k1, k2 in STAGES_SUBCLUSTER:
     )
 
 # %%
-adatas["midG"].obs = adatas["midG"].obs.join(df)
 
-for c in df.columns:
-    sc.pl.umap(adatas["midG"], color=[c])
-
-sc.pl.umap(adatas["midG"], color=["leiden"], legend_loc="on data")
-
-# %%
-adata_filtered = adatas["midG"][
-    adatas["midG"].obs["leiden"].isin(["4", "6", "10", "21"])
+STAGES_COI = [
+    ("midG", ("4", "6", "10", "21")),
+    ("earN", ("8", "10", "12", "19", "22", "27")),
+    ("latN", ("19", "41", "44", "27", "43", "45", "37", "20", "16", "38", "32")),
 ]
 
-sc.tl.pca(adata_filtered, svd_solver="arpack")
-sc.pp.neighbors(adata_filtered, n_neighbors=10, n_pcs=40)
-sc.tl.leiden(adata_filtered)
-sc.tl.paga(adata_filtered)
-sc.pl.paga(adata_filtered, plot=False)
-sc.tl.umap(adata_filtered, init_pos="paga")
-adata_filtered.write(f"cao2019_npisc_ky21_midG_np.h5ad")
+for k, c in STAGES_COI:
+    adata_filtered = adatas[k][adatas[k].obs["leiden"].isin(c)]
+    sc.tl.pca(adata_filtered, svd_solver="arpack")
+    sc.pp.neighbors(adata_filtered, n_neighbors=10, n_pcs=40)
+    sc.tl.leiden(adata_filtered)
+    sc.tl.paga(adata_filtered)
+    sc.pl.paga(adata_filtered, plot=False)
+    sc.tl.umap(adata_filtered, init_pos="paga")
+    adata_filtered.write(f"cao2019_npisc_ky21_coi_{k}.h5ad")
 
 # %%
-adata_filtered = sc.read_h5ad("cao2019_npisc_ky21_midG_np.h5ad")
-df1 = to_df(adata_filtered)
-df2 = to_df(pattern_dfs["mid gastrula"])
 
-df = 1 - get_distance(df2, df1, metric="cosine").T
-sns.clustermap(df, cmap="viridis", xticklabels=True, yticklabels=False)
-adata_filtered.obs = adata_filtered.obs.join(df)
-adata_filtered.obs["top_three"] = df.apply(
-    lambda s: ", ".join(s.nlargest(1).index.tolist()), axis=1
-)
-adata_filtered.obs["top_three"] = adata_filtered.obs["top_three"].astype("category")
+for k1, k2 in STAGES_SUBCLUSTER:
+    print(k1, k2)
 
-for c in df.columns:
-    sc.pl.umap(adata_filtered, color=[c])
+    adata_filtered = sc.read_h5ad(f"cao2019_npisc_ky21_coi_{k2}.h5ad")
+    df1 = to_df(adata_filtered)
+    df2 = to_df(pattern_dfs[k1])
 
-sc.pl.umap(adata_filtered, color=["leiden"], legend_loc="on data")
-sc.pl.umap(adata_filtered, color=["top_three"])
+    df = 1 - get_distance(df2, df1, metric="cosine").T
+    sns.clustermap(df, cmap="viridis", xticklabels=True, yticklabels=False)
+    adata_filtered.obs = adata_filtered.obs.join(df)
+    adata_filtered.obs["top_cluster"] = df.apply(
+        lambda s: ", ".join(s.nlargest(1).index.tolist()), axis=1
+    )
+    adata_filtered.obs["top_cluster"] = adata_filtered.obs["top_cluster"].astype("category")
+
+    for c in df.columns:
+        sc.pl.umap(adata_filtered, color=[c])
+
+    sc.pl.umap(adata_filtered, color=["leiden"], legend_loc="on data")
+    sc.pl.umap(adata_filtered, color=["top_cluster"])
 
 # %%
 num_top = 50
