@@ -103,49 +103,6 @@ adatas = {
     stage: sc.read_h5ad(f"cao2019_npisc_ky21_{stage}.h5ad") for stage in STAGES_SC
 }
 
-# %%
-for s1, s2 in adjacent(STAGES_SC):
-    df = find_similar_clusters(adatas[s1], adatas[s2])
-    df.to_csv(f"map_{s1}_{s2}.csv")
-    print(s1, s2)
-    matrix = df.pivot(index="leiden", columns="leiden_2", values="similarity")
-    plot_distance(matrix)
-
-# %%
-
-for s in STAGES_SC:
-    print(s)
-    sc.pl.dotplot(adatas[s], ["KY21:KY21.Chr3.483"], groupby="leiden", vmin=0, vmax=4)
-    sc.pl.umap(adatas[s], color=["KY21:KY21.Chr3.483"])
-    # for p in plots:
-    #     sc.pl.umap(adatas[s], color=[p])
-
-# %%
-df = preprocess_tsv(
-    "npisc/all_territories.tsv",
-    "kh2012_ky21_map.txt",
-    "npisc/developmental_ontology.txt",
-)
-
-map_stage = {
-    "early neurula": "earN",
-    "late gastrula": "latG",
-    "late neurula": "latN",
-    "mid gastrula": "midG",
-    "mid neurula": "midN",
-}
-
-STAGES_SC = {
-    map_stage.get(stage, None): build_from_df(stage_df)
-    for stage, stage_df in df.groupby("Stage")
-}
-
-# %%
-for (s1, m1), (s2, m2) in product(pattern_dfs.items(), adatas.items()):
-    print(s1, s2)
-    df = get_distance(m1, m2, metric="cosine")
-    print(df)
-
 
 # %%
 def find_coi(
@@ -190,7 +147,9 @@ STAGES_SUBCLUSTER = [
 for k1, k2 in STAGES_SUBCLUSTER:
     df = 1 - get_distance(pattern_dfs[k1], adatas[k2], metric="cosine").T
     sns.clustermap(df, cmap="viridis", xticklabels=True, yticklabels=False)
-    print(find_coi(df, adatas[k2]))
+    find_coi(df, adatas[k2]).to_csv(
+        f"cao2019_npisc_ky21_{k2}_matching.csv", index=False
+    )
 
 # %%
 adatas["midG"].obs = adatas["midG"].obs.join(df)
