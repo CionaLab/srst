@@ -144,21 +144,34 @@ STAGES_SUBCLUSTER = [
 ]
 
 # %%
-for k1, k2 in STAGES_SUBCLUSTER:
-    df = 1 - get_distance(pattern_dfs[k1], adatas[k2], metric="cosine").T
-    sns.clustermap(df, cmap="viridis", xticklabels=True, yticklabels=False)
-    find_coi(df, adatas[k2]).to_csv(
-        f"cao2019_npisc_ky21_{k2}_matching.csv", index=False
+df_coi = (
+    pd.concat(
+        [
+            find_coi(
+                1 - get_distance(pattern_dfs[k1], adatas[k2], metric="cosine").T,
+                adatas[k2],
+            ).assign(stage=k2)
+            for k1, k2 in STAGES_SUBCLUSTER
+        ]
     )
+    .reset_index(drop=True)
+    .groupby("stage")
+    .apply(lambda x: x[x["value"] > 0.06])
+    .reset_index(drop=True)
+)
+
+df_coi.to_csv("cao2019_npisc_ky21_cois.csv", index=False)
 
 # %%
 
+df_coi = pd.read_csv("cao2019_npisc_ky21_cois.csv")
+
 STAGES_COI = [
-    ("midG", ("4", "6", "10", "21")),
-    ("earN", ("8", "10", "12", "19", "22", "27")),
-    ("latN", ("19", "41", "44", "27", "43", "45", "37", "20", "16", "38", "32")),
+    (stage, tuple(map(str, df["leiden"].values))) for stage, df in df_coi.groupby("stage")
 ]
 
+
+# %%
 for k, c in STAGES_COI:
     adata_filtered = adatas[k][adatas[k].obs["leiden"].isin(c)]
     sc.tl.pca(adata_filtered, svd_solver="arpack")
@@ -184,7 +197,9 @@ for k1, k2 in STAGES_SUBCLUSTER:
     adata_filtered.obs["top_cluster"] = df.apply(
         lambda s: ", ".join(s.nlargest(1).index.tolist()), axis=1
     )
-    adata_filtered.obs["top_cluster"] = adata_filtered.obs["top_cluster"].astype("category")
+    adata_filtered.obs["top_cluster"] = adata_filtered.obs["top_cluster"].astype(
+        "category"
+    )
 
     for c in df.columns:
         sc.pl.umap(adata_filtered, color=[c])
