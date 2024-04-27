@@ -11,14 +11,10 @@ from pandas.core.frame import DataFrame
 from anndata import AnnData
 
 from npisc.build_matrix import (
-    preprocess_tsv,
-    build_from_df,
     split_adata,
     get_distance,
     to_df,
-    adjacent,
-    find_similar_clusters,
-    plot_distance,
+    find_coi,
 )
 
 # %%
@@ -103,38 +99,6 @@ adatas = {
     stage: sc.read_h5ad(f"cao2019_npisc_ky21_{stage}.h5ad") for stage in STAGES_SC
 }
 
-
-# %%
-def find_coi(
-    df: DataFrame,
-    adata: AnnData,
-    cluster: str = "leiden",
-    blastomere: str = "Territory_eq",
-) -> DataFrame:
-    """
-    This function finds the clusters of interest based on the expression similarity to blastomeres in the DataFrame.
-
-    Parameters:
-    - df (pandas.DataFrame): The input DataFrame containing the similarity matrix.
-    - adata (anndata.AnnData): The input AnnData object.
-    - cluster (str, optional): The column name in adata.obs based on which the clusters of interest are determined. Default is "leiden".
-    - blastomere (str, optional): The column name in adata.obs representing the blastomere. Default is "Territory_eq".
-
-    Returns:
-    - pandas.DataFrame: A DataFrame containing the maximum values for each cluster based on the specified blastomere.
-    """
-    df = (
-        df.melt(ignore_index=False)
-        .join(adata.obs[cluster])
-        .groupby([cluster, blastomere])
-        .median()
-        .reset_index()
-    )
-    return df.loc[df.groupby(cluster)["value"].idxmax()].sort_values(
-        "value", ascending=False
-    )
-
-
 # %%
 
 STAGES_SUBCLUSTER = [
@@ -163,11 +127,11 @@ df_coi = (
 df_coi.to_csv("cao2019_npisc_ky21_cois.csv", index=False)
 
 # %%
-
 df_coi = pd.read_csv("cao2019_npisc_ky21_cois.csv")
 
 STAGES_COI = [
-    (stage, tuple(map(str, df["leiden"].values))) for stage, df in df_coi.groupby("stage")
+    (stage, tuple(map(str, df["leiden"].values)))
+    for stage, df in df_coi.groupby("stage")
 ]
 
 
@@ -183,7 +147,6 @@ for k, c in STAGES_COI:
     adata_filtered.write(f"cao2019_npisc_ky21_coi_{k}.h5ad")
 
 # %%
-
 for k1, k2 in STAGES_SUBCLUSTER:
     print(k1, k2)
 
