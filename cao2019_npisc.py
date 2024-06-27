@@ -1,20 +1,18 @@
 # %%
 import re
-from itertools import product
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import scanpy as sc
 import seaborn as sns
-from pandas.core.frame import DataFrame
-from anndata import AnnData
 
 from npisc.build_matrix import (
     split_adata,
     get_distance,
     to_df,
     find_coi,
+    get_mahalanobis_distance,
 )
 
 # %%
@@ -108,23 +106,23 @@ STAGES_SUBCLUSTER = [
 ]
 
 # %%
-df_coi = (
-    pd.concat(
-        [
-            find_coi(
-                1 - get_distance(pattern_dfs[k1], adatas[k2], metric="cosine").T,
-                adatas[k2],
-            ).assign(stage=k2)
-            for k1, k2 in STAGES_SUBCLUSTER
-        ]
-    )
-    .reset_index(drop=True)
-    .groupby("stage")
-    .apply(lambda x: x[x["value"] > 0.06])
-    .reset_index(drop=True)
+df_coi = pd.concat(
+    [
+        pd.DataFrame(
+            {
+                "coi": find_coi(
+                    get_mahalanobis_distance(adatas[k2], pattern_dfs[k1]),
+                    adatas[k2],
+                ),
+                "stage": k2,
+            }
+        )
+        for k1, k2 in STAGES_SUBCLUSTER
+    ]
 )
 
-df_coi.to_csv("cao2019_npisc_ky21_cois.csv", index=False)
+# %%
+df_coi.to_csv("cao2019_npisc_ky21_cois_mahalanobis.csv", index=False)
 
 # %%
 df_coi = pd.read_csv("cao2019_npisc_ky21_cois.csv")
