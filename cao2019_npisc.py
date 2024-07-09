@@ -1,18 +1,16 @@
 # %%
 import re
 
-import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 import scanpy as sc
-import seaborn as sns
+import networkx as nx
 
 from npisc.build_matrix import (
     split_adata,
-    get_distance,
-    to_df,
     find_coi,
     get_mahalanobis_distance,
+    find_similar_clusters,
+    adjacent,
 )
 
 # %%
@@ -148,10 +146,8 @@ df_coi = pd.read_csv("cao2019_npisc_ky21_cois_mahalanobis.csv")
 STAGES_COI = df_coi.groupby("stage")["coi"].apply(list).to_dict()
 
 # %%
-adata = sc.read_h5ad("cao2019_ky21_raw.h5ad")
-
-# %%
 for _, k in STAGES_SUBCLUSTER:
+    adata = sc.read_h5ad(f"cao2019_npisc_ky21_{k}.h5ad")
     adata_filtered = adata[STAGES_COI[k]]
     sc.tl.pca(adata_filtered, svd_solver="arpack")
     sc.pp.neighbors(adata_filtered, n_neighbors=10, n_pcs=40)
@@ -160,30 +156,6 @@ for _, k in STAGES_SUBCLUSTER:
     sc.pl.paga(adata_filtered, plot=False)
     sc.tl.umap(adata_filtered, init_pos="paga")
     adata_filtered.write(f"cao2019_npisc_ky21_coi_{k}.h5ad")
-
-# %%
-for k1, k2 in STAGES_SUBCLUSTER:
-    print(k1, k2)
-
-    adata_filtered = sc.read_h5ad(f"cao2019_npisc_ky21_coi_{k2}.h5ad")
-    df1 = to_df(adata_filtered)
-    df2 = to_df(pattern_dfs[k1])
-
-    df = 1 - get_distance(df2, df1, metric="cosine").T
-    sns.clustermap(df, cmap="viridis", xticklabels=True, yticklabels=False)
-    adata_filtered.obs = adata_filtered.obs.join(df)
-    adata_filtered.obs["top_cluster"] = df.apply(
-        lambda s: ", ".join(s.nlargest(1).index.tolist()), axis=1
-    )
-    adata_filtered.obs["top_cluster"] = adata_filtered.obs["top_cluster"].astype(
-        "category"
-    )
-
-    for c in df.columns:
-        sc.pl.umap(adata_filtered, color=[c])
-
-    sc.pl.umap(adata_filtered, color=["leiden"], legend_loc="on data")
-    sc.pl.umap(adata_filtered, color=["top_cluster"])
 
 # %%
 num_top = 50
@@ -213,5 +185,53 @@ df.groupby("group").apply(
 ).reset_index(drop=True).to_csv(
     f"cao2019_npisc_ky21_midG_np_top{num_top}.csv", index=False
 )
+
+# %%
+STAGES_SC = ["midG", "earN", "latN"]
+adatas = {
+    stage: sc.read_h5ad(f"cao2019_npisc_ky21_coi_{stage}.h5ad") for stage in STAGES_SC
+}
+
+# %%
+for i, j in adjacent(STAGES_SC):
+    print(i, j)
+    d = find_similar_clusters(adatas[i], adatas[j])
+    d.to_csv(f"cao2019_npisc_ky21_{i}_{j}_distance.csv", index=False)
+
+# %%
+G = nx.DiGraph()
+
+for i, j in adjacent(STAGES_SC):
+    d = pd.read_csv(f"cao2019_npisc_ky21_{i}_{j}_distance.csv")
+    d["leiden_1"] = i + "_" + d["leiden_1"].astype(str)
+    d["leiden_2"] = j + "_" + d["leiden_2"].astype(str)
+    edges = d.values.tolist()
+    G.add_weighted_edges_from(edges)
+
+sources = [node for node in G.nodes if node.startswith(STAGES_SC[0])]
+targets = [node for node in G.nodes if node.startswith(STAGES_SC[-1])]
+
+# %%
+shortest_paths = [
+    (
+        source,
+        target,
+        nx.shortest_path(G, source, target, weight="weight"),
+        nx.shortest_path_length(G, source, target, weight="weight"),
+    )
+    for target in targets
+    for source in sources
+]
+
+# %%
+for i in STAGES_SC:
+    sc.pl.umap(adatas[i], color=["leiden"], legend_loc="on data")
+
+pd.DataFrame(shortest_paths).groupby(0).apply(
+    lambda x: x.loc[x[3].idxmin()]
+).reset_index(drop=True)
+
+# %%
+pd.DataFrame(shortest_paths).to_csv("test.csv")
 
 # %%
