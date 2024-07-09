@@ -106,18 +106,36 @@ STAGES_SUBCLUSTER = [
 ]
 
 # %%
+d_mahalanobis = {
+    k2: get_mahalanobis_distance(adatas[k2], pattern_dfs[k1])
+    for k1, k2 in STAGES_SUBCLUSTER
+}
+
+for k, v in d_mahalanobis.items():
+    v.to_csv(f"cao2019_npisc_ky21_mahalanobis_{k}.csv")
+
+# %%
+d_mahalanobis = {
+    k: pd.read_csv(f"cao2019_npisc_ky21_mahalanobis_{k}.csv", index_col=0)
+    for _, k in STAGES_SUBCLUSTER
+}
+
+for _, k in STAGES_SUBCLUSTER:
+    d_mahalanobis[k].columns.name = "Territory_eq"
+
+# %%
 df_coi = pd.concat(
     [
         pd.DataFrame(
             {
                 "coi": find_coi(
-                    get_mahalanobis_distance(adatas[k2], pattern_dfs[k1]),
+                    d_mahalanobis[k2],
                     adatas[k2],
                 ),
                 "stage": k2,
             }
         )
-        for k1, k2 in STAGES_SUBCLUSTER
+        for _, k2 in STAGES_SUBCLUSTER
     ]
 )
 
@@ -125,17 +143,16 @@ df_coi = pd.concat(
 df_coi.to_csv("cao2019_npisc_ky21_cois_mahalanobis.csv", index=False)
 
 # %%
-df_coi = pd.read_csv("cao2019_npisc_ky21_cois.csv")
+df_coi = pd.read_csv("cao2019_npisc_ky21_cois_mahalanobis.csv")
 
-STAGES_COI = [
-    (stage, tuple(map(str, df["leiden"].values)))
-    for stage, df in df_coi.groupby("stage")
-]
-
+STAGES_COI = df_coi.groupby("stage")["coi"].apply(list).to_dict()
 
 # %%
-for k, c in STAGES_COI:
-    adata_filtered = adatas[k][adatas[k].obs["leiden"].isin(c)]
+adata = sc.read_h5ad("cao2019_ky21_raw.h5ad")
+
+# %%
+for _, k in STAGES_SUBCLUSTER:
+    adata_filtered = adata[STAGES_COI[k]]
     sc.tl.pca(adata_filtered, svd_solver="arpack")
     sc.pp.neighbors(adata_filtered, n_neighbors=10, n_pcs=40)
     sc.tl.leiden(adata_filtered)
