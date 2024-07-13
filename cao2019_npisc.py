@@ -78,7 +78,7 @@ for key in adatas.keys():
     adata = adatas[key]
 
     sc.tl.pca(adata, svd_solver="arpack")
-    sc.pp.neighbors(adata, n_neighbors=10, n_pcs=40)
+    sc.pp.neighbors(adata, n_neighbors=50, n_pcs=50)
     sc.tl.leiden(adata)
     sc.tl.paga(adata)
     sc.pl.paga(adata, plot=False)
@@ -147,10 +147,9 @@ STAGES_COI = df_coi.groupby("stage")["coi"].apply(list).to_dict()
 
 # %%
 for _, k in STAGES_SUBCLUSTER:
-    adata = sc.read_h5ad(f"cao2019_npisc_ky21_{k}.h5ad")
-    adata_filtered = adata[STAGES_COI[k]]
+    adata_filtered = adatas[k][STAGES_COI[k]]
     sc.tl.pca(adata_filtered, svd_solver="arpack")
-    sc.pp.neighbors(adata_filtered, n_neighbors=10, n_pcs=40)
+    sc.pp.neighbors(adata_filtered, n_neighbors=50, n_pcs=50)
     sc.tl.leiden(adata_filtered)
     sc.tl.paga(adata_filtered)
     sc.pl.paga(adata_filtered, plot=False)
