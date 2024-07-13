@@ -3,14 +3,12 @@ import re
 
 import pandas as pd
 import scanpy as sc
-import networkx as nx
+import numpy as np
 
 from npisc.build_matrix import (
     split_adata,
     find_coi,
     get_mahalanobis_distance,
-    find_similar_clusters,
-    adjacent,
 )
 
 # %%
@@ -186,51 +184,47 @@ df.groupby("group").apply(
 )
 
 # %%
-STAGES_SC = ["midG", "earN", "latN"]
-adatas = {
-    stage: sc.read_h5ad(f"cao2019_npisc_ky21_coi_{stage}.h5ad") for stage in STAGES_SC
-}
+adata = sc.read_h5ad("cao2019_ky21_raw.h5ad")[df_coi["coi"].values]
+sc.pp.recipe_zheng17(adata)
+# %%
+sc.tl.pca(adata, svd_solver="arpack")
+sc.pp.neighbors(adata, n_neighbors=50, n_pcs=50)
 
 # %%
-for i, j in adjacent(STAGES_SC):
-    print(i, j)
-    d = find_similar_clusters(adatas[i], adatas[j])
-    d.to_csv(f"cao2019_npisc_ky21_{i}_{j}_distance.csv", index=False)
+sc.tl.diffmap(adata)
+sc.pp.neighbors(adata, n_neighbors=50, use_rep="X_diffmap")
 
 # %%
-G = nx.DiGraph()
-
-for i, j in adjacent(STAGES_SC):
-    d = pd.read_csv(f"cao2019_npisc_ky21_{i}_{j}_distance.csv")
-    d["leiden_1"] = i + "_" + d["leiden_1"].astype(str)
-    d["leiden_2"] = j + "_" + d["leiden_2"].astype(str)
-    edges = d.values.tolist()
-    G.add_weighted_edges_from(edges)
-
-sources = [node for node in G.nodes if node.startswith(STAGES_SC[0])]
-targets = [node for node in G.nodes if node.startswith(STAGES_SC[-1])]
+sc.tl.draw_graph(adata)
+sc.pl.draw_graph(adata, color="stage", legend_loc="on data")
 
 # %%
-shortest_paths = [
-    (
-        source,
-        target,
-        nx.shortest_path(G, source, target, weight="weight"),
-        nx.shortest_path_length(G, source, target, weight="weight"),
-    )
-    for target in targets
-    for source in sources
-]
+sc.tl.leiden(adata, resolution=1.0)
+sc.tl.paga(adata, groups="leiden")
 
 # %%
-for i in STAGES_SC:
-    sc.pl.umap(adatas[i], color=["leiden"], legend_loc="on data")
-
-pd.DataFrame(shortest_paths).groupby(0).apply(
-    lambda x: x.loc[x[3].idxmin()]
-).reset_index(drop=True)
+sc.pl.paga(adata, color=["leiden"])
 
 # %%
-pd.DataFrame(shortest_paths).to_csv("test.csv")
+sc.tl.draw_graph(adata, init_pos="paga")
+
+# %%
+adata.uns["iroot"] = np.flatnonzero(adata.obs["stage"] == "midG")[0]
+
+# %%
+sc.tl.dpt(adata)
+
+# %%
+adata_raw = sc.read_h5ad("cao2019_ky21_raw.h5ad")[df_coi["coi"].values]
+sc.pp.log1p(adata_raw)
+sc.pp.scale(adata_raw)
+adata.raw = adata_raw
+
+# %%
+for k in ["leiden", "dpt_pseudotime", "stage", "dpt_groups"]:
+    sc.pl.draw_graph(adata, color=[k])
+
+# %%
+adata.write_h5ad("cao2019_npisc_ky21_traj.h5ad")
 
 # %%
