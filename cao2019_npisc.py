@@ -39,7 +39,7 @@ df = df[["Stage", "Gene", "Territory_eq"]].drop_duplicates()
 
 dfs = dict(tuple(df.groupby("Stage")))
 
-count_dfs = {
+df_counts = {
     stage: df.groupby("Territory_eq")["Gene"]
     .nunique()
     .reset_index()
@@ -47,7 +47,7 @@ count_dfs = {
     for stage, df in dfs.items()
 }
 
-pattern_dfs = {
+d_patterns = {
     stage: pd.pivot_table(
         df,
         values="Gene",
@@ -59,8 +59,8 @@ pattern_dfs = {
     for stage, df in dfs.items()
 }
 
-pattern_df = pd.concat(
-    [df.rename(index=lambda x: f"{key}_{x}") for key, df in pattern_dfs.items()],
+df_patterns = pd.concat(
+    [df.rename(index=lambda x: f"{key}_{x}") for key, df in d_patterns.items()],
     axis=0,
     sort=False,
 ).fillna(False)
@@ -103,7 +103,7 @@ STAGES_SUBCLUSTER = [
 
 # %%
 d_mahalanobis = {
-    k2: get_mahalanobis_distance(adatas[k2], pattern_dfs[k1])
+    k2: get_mahalanobis_distance(adatas[k2], d_patterns[k1])
     for k1, k2 in STAGES_SUBCLUSTER
 }
 
@@ -161,7 +161,7 @@ sc.tl.rank_genes_groups(value, f"leiden", method="t-test")
 result = value.uns["rank_genes_groups"]
 groups = result["names"].dtype.names
 
-df = pd.concat(
+df_diff = pd.concat(
     [
         pd.DataFrame(
             {
@@ -175,7 +175,7 @@ df = pd.concat(
     ]
 )
 
-df.groupby("group").apply(
+df_diff.groupby("group").apply(
     lambda g: g[g["p_adj"] < 0.05]  # Filter step
     .sort_values(by="log2fc", ascending=False)  # Sort step
     .head(num_top)  # Select top 50 step
@@ -221,8 +221,8 @@ sc.pp.scale(adata_raw)
 adata.raw = adata_raw
 
 # %%
-for k in ["leiden", "dpt_pseudotime", "stage", "dpt_groups"]:
-    sc.pl.draw_graph(adata, color=[k])
+for k in ["leiden", "dpt_pseudotime", "stage"]:
+    sc.pl.draw_graph(adata, color=[k], legend_loc="on data")
 
 # %%
 adata.write_h5ad("cao2019_npisc_ky21_traj.h5ad")
