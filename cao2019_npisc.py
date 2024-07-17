@@ -9,6 +9,7 @@ from npisc.build_matrix import (
     split_adata,
     find_coi,
     get_mahalanobis_distance,
+    append_raw
 )
 
 # %%
@@ -67,6 +68,7 @@ df_patterns = pd.concat(
 
 # %%
 adata = sc.read_h5ad("cao2019_ky21.h5ad")
+adata_raw = sc.read_h5ad("cao2019_ky21_raw.h5ad")
 
 # %%
 adatas = split_adata(adata, "stage")
@@ -90,8 +92,16 @@ STAGES_SC = ["midG", "earN", "latN", "iniT", "earT", "midT", "latTI", "latTII", 
 plots = ["leiden", "KY21:KY21.Chr2.490"]
 
 adatas = {
-    stage: sc.read_h5ad(f"cao2019_npisc_ky21_{stage}.h5ad") for stage in STAGES_SC
+    s: sc.read_h5ad(f"cao2019_npisc_ky21_{s}.h5ad") for s in STAGES_SC
 }
+
+adatas_raw = {
+    k: append_raw(v, adata_raw[v.obs.index, v.var.index]) for k, v in adatas.items()
+}
+
+# %%
+
+get_mahalanobis_distance(d_patterns["mid gastrula"], adatas_raw["midG"])
 
 # %%
 
