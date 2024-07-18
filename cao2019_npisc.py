@@ -4,12 +4,16 @@ import re
 import pandas as pd
 import scanpy as sc
 import numpy as np
+import seaborn as sns
+
+import matplotlib.pyplot as plt
+import geopandas as gpd
 
 from npisc.build_matrix import (
     split_adata,
-    find_coi,
-    get_mahalanobis_distance,
-    append_raw
+    get_distance,
+    pad_compatible,
+    append_raw,
 )
 
 # %%
@@ -78,7 +82,7 @@ for key in adatas.keys():
     adata = adatas[key]
 
     sc.tl.pca(adata, svd_solver="arpack")
-    sc.pp.neighbors(adata, n_neighbors=50, n_pcs=50)
+    sc.pp.neighbors(adata, n_neighbors=20, n_pcs=50)
     sc.tl.leiden(adata)
     sc.tl.paga(adata)
     sc.pl.paga(adata, plot=False)
@@ -91,17 +95,11 @@ STAGES_SC = ["midG", "earN", "latN", "iniT", "earT", "midT", "latTI", "latTII", 
 
 plots = ["leiden", "KY21:KY21.Chr2.490"]
 
-adatas = {
-    s: sc.read_h5ad(f"cao2019_npisc_ky21_{s}.h5ad") for s in STAGES_SC
-}
+adatas = {s: sc.read_h5ad(f"cao2019_npisc_ky21_{s}.h5ad") for s in STAGES_SC}
 
 adatas_raw = {
     k: append_raw(v, adata_raw[v.obs.index, v.var.index]) for k, v in adatas.items()
 }
-
-# %%
-
-get_mahalanobis_distance(d_patterns["mid gastrula"], adatas_raw["midG"])
 
 # %%
 
@@ -112,62 +110,103 @@ STAGES_SUBCLUSTER = [
 ]
 
 # %%
-d_mahalanobis = {
-    k2: get_mahalanobis_distance(adatas[k2], d_patterns[k1])
-    for k1, k2 in STAGES_SUBCLUSTER
-}
 
-for k, v in d_mahalanobis.items():
-    v.to_csv(f"cao2019_npisc_ky21_mahalanobis_{k}.csv")
+STAGES_GEOJSON = [
+    ("mid gastrula", "mid_gastrula.geojson", 6),
+    ("late gastrula", "late_gastrula.geojson", 7),
+    ("early neurula", "early_neurula.geojson", 10),
+    ("mid neurula", "mid_neurula.geojson", 11),
+    ("late neurula", "late_neurula.geojson", 12),
+]
 
-# %%
-d_mahalanobis = {
-    k: pd.read_csv(f"cao2019_npisc_ky21_mahalanobis_{k}.csv", index_col=0)
-    for _, k in STAGES_SUBCLUSTER
-}
+gdfs = {stage: (gpd.read_file(f"npisc/{file}"), l) for stage, file, l in STAGES_GEOJSON}
 
-for _, k in STAGES_SUBCLUSTER:
-    d_mahalanobis[k].columns.name = "Territory_eq"
 
 # %%
-df_coi = pd.concat(
-    [
-        pd.DataFrame(
-            {
-                "coi": find_coi(
-                    d_mahalanobis[k2],
-                    adatas[k2],
-                ),
-                "stage": k2,
-            }
-        )
-        for _, k2 in STAGES_SUBCLUSTER
-    ]
+for k1, k2 in STAGES_SUBCLUSTER:
+    print(k1)
+    d1, a1 = pad_compatible(d_patterns[k1], adatas_raw[k2])
+    sc.pp.normalize_total(a1, target_sum=1e4)
+    sc.pp.log1p(a1)
+    sc.tl.pca(a1, svd_solver="arpack")
+
+    t = 1 - get_distance(
+        d1 @ a1.varm["PCs"],
+        pd.DataFrame(a1.obsm["X_pca"], index=a1.obs_names),
+        "cosine",
+    )
+
+    sns.clustermap(t)
+
+    t2 = t.T.join(a1.obs["leiden"], how="left").groupby("leiden").mean()
+    sns.clustermap(t2.T)
+
+    t3 = pd.DataFrame({"cluster": t2.idxmax(axis=0), "cos_theta": t2.max(axis=0)})
+
+    t3.to_csv("cao2019_npisc_ky21_{}_cos_theta.csv".format(k1))
+
+    v, l = gdfs[k1]
+    v = v.merge(t3, left_on="name", right_index=True)
+    fig, ax = plt.subplots(1, 1)
+    v.plot(
+        column="cos_theta",
+        cmap="rocket",
+        ax=ax,
+        linewidth=0.8,
+        edgecolor="0.8",
+        legend=True,
+        legend_kwds={"shrink": 0.3},
+        vmax=0.7,
+        vmin=0.1,
+    )
+    v.apply(
+        lambda x: ax.annotate(
+            text=f"{x["name"]}\n{x["cluster"]}",
+            xy=x.geometry.centroid.coords[0],
+            ha="center",
+            color="white",
+            fontsize=12,
+        ),
+        axis=1,
+    )
+    fig.set_size_inches(6, l)
+    plt.axis("off")
+    plt.show()
+
+# %%
+for k1, _ in STAGES_SUBCLUSTER:
+    sns.clustermap(d_patterns[k1], cbar_pos=None)
+
+# %%
+sc.pl.umap(adatas["midG"], color=["leiden"], legend_loc="on data")
+sc.pl.umap(adatas["midG"], color=["KY21:KY21.Chr1.422"])
+
+# %%
+
+a1, a2 = pad_compatible(adatas_raw["midG"], adatas_raw["earN"])
+sc.pp.normalize_total(a1, target_sum=1e4)
+sc.pp.log1p(a1)
+sc.tl.pca(a1, svd_solver="arpack")
+sc.pp.normalize_total(a2, target_sum=1e4)
+sc.pp.log1p(a2)
+sc.tl.pca(a2, svd_solver="arpack")
+
+t = get_distance(
+    pd.DataFrame(a1.X @ a2.varm["PCs"], index=a1.obs_names),
+    pd.DataFrame(a2.obsm["X_pca"], index=a2.obs_names),
+    "cosine",
 )
 
-# %%
-df_coi.to_csv("cao2019_npisc_ky21_cois_mahalanobis.csv", index=False)
+sns.clustermap(1 - t)
 
 # %%
-df_coi = pd.read_csv("cao2019_npisc_ky21_cois_mahalanobis.csv")
-
-STAGES_COI = df_coi.groupby("stage")["coi"].apply(list).to_dict()
+t2 = t.T.join(a2.obs["leiden"]).groupby("leiden").mean()
 
 # %%
-for _, k in STAGES_SUBCLUSTER:
-    adata_filtered = adatas[k][STAGES_COI[k]]
-    sc.tl.pca(adata_filtered, svd_solver="arpack")
-    sc.pp.neighbors(adata_filtered, n_neighbors=50, n_pcs=50)
-    sc.tl.leiden(adata_filtered)
-    sc.tl.paga(adata_filtered)
-    sc.pl.paga(adata_filtered, plot=False)
-    sc.tl.umap(adata_filtered, init_pos="paga")
-    adata_filtered.write(f"cao2019_npisc_ky21_coi_{k}.h5ad")
 
-# %%
 num_top = 50
-value = sc.read_h5ad("cao2019_npisc_ky21_midG_np.h5ad")
-sc.tl.rank_genes_groups(value, f"leiden", method="t-test")
+value = sc.read_h5ad("cao2019_npisc_ky21_midG.h5ad")
+sc.tl.rank_genes_groups(value, "leiden", method="t-test")
 result = value.uns["rank_genes_groups"]
 groups = result["names"].dtype.names
 
@@ -190,51 +229,7 @@ df_diff.groupby("group").apply(
     .sort_values(by="log2fc", ascending=False)  # Sort step
     .head(num_top)  # Select top 50 step
 ).reset_index(drop=True).to_csv(
-    f"cao2019_npisc_ky21_midG_np_top{num_top}.csv", index=False
+    f"cao2019_npisc_ky21_midG_top{num_top}.csv", index=False
 )
 
-# %%
-adata = sc.read_h5ad("cao2019_ky21_raw.h5ad")[df_coi["coi"].values]
-sc.pp.recipe_zheng17(adata)
-# %%
-sc.tl.pca(adata, svd_solver="arpack")
-sc.pp.neighbors(adata, n_neighbors=50, n_pcs=50)
-
-# %%
-sc.tl.diffmap(adata)
-sc.pp.neighbors(adata, n_neighbors=50, use_rep="X_diffmap")
-
-# %%
-sc.tl.draw_graph(adata)
-sc.pl.draw_graph(adata, color="stage", legend_loc="on data")
-
-# %%
-sc.tl.leiden(adata, resolution=1.0)
-sc.tl.paga(adata, groups="leiden")
-
-# %%
-sc.pl.paga(adata, color=["leiden"])
-
-# %%
-sc.tl.draw_graph(adata, init_pos="paga")
-
-# %%
-adata.uns["iroot"] = np.flatnonzero(adata.obs["stage"] == "midG")[0]
-
-# %%
-sc.tl.dpt(adata)
-
-# %%
-adata_raw = sc.read_h5ad("cao2019_ky21_raw.h5ad")[df_coi["coi"].values]
-sc.pp.log1p(adata_raw)
-sc.pp.scale(adata_raw)
-adata.raw = adata_raw
-
-# %%
-for k in ["leiden", "dpt_pseudotime", "stage"]:
-    sc.pl.draw_graph(adata, color=[k], legend_loc="on data")
-
-# %%
-adata.write_h5ad("cao2019_npisc_ky21_traj.h5ad")
-
-# %%
+#%%
