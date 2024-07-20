@@ -183,27 +183,6 @@ sc.pl.umap(adatas["midG"], color=["KY21:KY21.Chr1.422"])
 
 # %%
 
-a1, a2 = pad_compatible(adatas_raw["midG"], adatas_raw["earN"])
-sc.pp.normalize_total(a1, target_sum=1e4)
-sc.pp.log1p(a1)
-sc.tl.pca(a1, svd_solver="arpack")
-sc.pp.normalize_total(a2, target_sum=1e4)
-sc.pp.log1p(a2)
-sc.tl.pca(a2, svd_solver="arpack")
-
-t = get_distance(
-    pd.DataFrame(a1.X @ a2.varm["PCs"], index=a1.obs_names),
-    pd.DataFrame(a2.obsm["X_pca"], index=a2.obs_names),
-    "cosine",
-)
-
-sns.clustermap(1 - t)
-
-# %%
-t2 = t.T.join(a2.obs["leiden"]).groupby("leiden").mean()
-
-# %%
-
 num_top = 50
 value = sc.read_h5ad("cao2019_npisc_ky21_midG.h5ad")
 sc.tl.rank_genes_groups(value, "leiden", method="t-test")
@@ -232,4 +211,65 @@ df_diff.groupby("group").apply(
     f"cao2019_npisc_ky21_midG_top{num_top}.csv", index=False
 )
 
-#%%
+# %%
+
+a1, a2 = pad_compatible(adatas_raw["midG"], adatas_raw["earN"])
+sc.pp.normalize_total(a1, target_sum=1e4)
+sc.pp.log1p(a1)
+sc.tl.pca(a1, svd_solver="arpack")
+sc.pp.normalize_total(a2, target_sum=1e4)
+sc.pp.log1p(a2)
+sc.tl.pca(a2, svd_solver="arpack")
+
+t1 = 1 - get_distance(
+    pd.DataFrame(a1.X @ a2.varm["PCs"], index=a1.obs_names),
+    pd.DataFrame(a2.obsm["X_pca"], index=a2.obs_names),
+    "cosine",
+)
+
+t2 = 1 - get_distance(
+    pd.DataFrame(a2.X @ a1.varm["PCs"], index=a2.obs_names),
+    pd.DataFrame(a1.obsm["X_pca"], index=a1.obs_names),
+    "cosine",
+)
+
+sns.clustermap(t1)
+sns.clustermap(t2)
+
+# %%
+d1 = (
+    t1.melt(ignore_index=False, var_name="target", value_name="cos_theta")
+    .reset_index(names="source")
+    .merge(a1.obs["leiden"], left_on=["source"], right_index=True)
+    .merge(
+        a2.obs["leiden"], left_on=["target"], right_index=True, suffixes=("_1", "_2")
+    )
+    .groupby(["leiden_1", "leiden_2"])["cos_theta"]
+    .mean()
+    .reset_index()
+)
+
+d2 = (
+    t2.melt(ignore_index=False, var_name="target", value_name="cos_theta")
+    .reset_index(names="source")
+    .merge(a2.obs["leiden"], left_on=["source"], right_index=True)
+    .merge(
+        a1.obs["leiden"], left_on=["target"], right_index=True, suffixes=("_1", "_2")
+    )
+    .groupby(["leiden_1", "leiden_2"])["cos_theta"]
+    .mean()
+    .reset_index()
+)
+# %%
+d3 = d1.pivot(index="leiden_1", columns="leiden_2", values="cos_theta")
+d4 = d2.pivot(index="leiden_1", columns="leiden_2", values="cos_theta")
+
+# %%
+sns.clustermap(d3.T)
+sns.clustermap(d4)
+
+# %%
+
+sns.clustermap(d3 + d4.T)
+
+# %%
