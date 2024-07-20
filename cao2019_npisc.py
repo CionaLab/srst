@@ -14,6 +14,7 @@ from npisc.build_matrix import (
     get_distance,
     pad_compatible,
     append_raw,
+    adjacent,
 )
 
 # %%
@@ -143,7 +144,7 @@ for k1, k2 in STAGES_SUBCLUSTER:
 
     t3 = pd.DataFrame({"cluster": t2.idxmax(axis=0), "cos_theta": t2.max(axis=0)})
 
-    t3.to_csv("cao2019_npisc_ky21_{}_cos_theta.csv".format(k1))
+    t3.to_csv(f"cao2019_npisc_ky21_{k1}_cos_theta.csv")
 
     v, l = gdfs[k1]
     v = v.merge(t3, left_on="name", right_index=True)
@@ -213,63 +214,90 @@ df_diff.groupby("group").apply(
 
 # %%
 
-a1, a2 = pad_compatible(adatas_raw["midG"], adatas_raw["earN"])
-sc.pp.normalize_total(a1, target_sum=1e4)
-sc.pp.log1p(a1)
-sc.tl.pca(a1, svd_solver="arpack")
-sc.pp.normalize_total(a2, target_sum=1e4)
-sc.pp.log1p(a2)
-sc.tl.pca(a2, svd_solver="arpack")
+for i, (k1, k2) in enumerate(adjacent(STAGES_SC)):
+    print(k1, k2)
 
-t1 = 1 - get_distance(
-    pd.DataFrame(a1.X @ a2.varm["PCs"], index=a1.obs_names),
-    pd.DataFrame(a2.obsm["X_pca"], index=a2.obs_names),
-    "cosine",
-)
+    a1, a2 = pad_compatible(adatas_raw[k1], adatas_raw[k2])
+    sc.pp.normalize_total(a1, target_sum=1e4)
+    sc.pp.log1p(a1)
+    sc.tl.pca(a1, svd_solver="arpack")
+    sc.pp.normalize_total(a2, target_sum=1e4)
+    sc.pp.log1p(a2)
+    sc.tl.pca(a2, svd_solver="arpack")
 
-t2 = 1 - get_distance(
-    pd.DataFrame(a2.X @ a1.varm["PCs"], index=a2.obs_names),
-    pd.DataFrame(a1.obsm["X_pca"], index=a1.obs_names),
-    "cosine",
-)
-
-sns.clustermap(t1)
-sns.clustermap(t2)
+    a1.write_h5ad(f"cao2019_npisc_ky21_stage_stage_{i}_{k1}.h5ad")
+    a2.write_h5ad(f"cao2019_npisc_ky21_stage_stage_{i}_{k2}.h5ad")
 
 # %%
-d1 = (
-    t1.melt(ignore_index=False, var_name="target", value_name="cos_theta")
-    .reset_index(names="source")
-    .merge(a1.obs["leiden"], left_on=["source"], right_index=True)
-    .merge(
-        a2.obs["leiden"], left_on=["target"], right_index=True, suffixes=("_1", "_2")
+
+for i, (k1, k2) in enumerate(adjacent(STAGES_SC)):
+    print(k1, k2)
+
+    a1 = sc.read_h5ad(f"cao2019_npisc_ky21_stage_stage_{i}_{k1}.h5ad")
+    a2 = sc.read_h5ad(f"cao2019_npisc_ky21_stage_stage_{i}_{k2}.h5ad")
+
+    t1 = 1 - get_distance(
+        pd.DataFrame(a1.X @ a2.varm["PCs"], index=a1.obs_names),
+        pd.DataFrame(a2.obsm["X_pca"], index=a2.obs_names),
+        "cosine",
     )
-    .groupby(["leiden_1", "leiden_2"])["cos_theta"]
-    .mean()
-    .reset_index()
-)
 
-d2 = (
-    t2.melt(ignore_index=False, var_name="target", value_name="cos_theta")
-    .reset_index(names="source")
-    .merge(a2.obs["leiden"], left_on=["source"], right_index=True)
-    .merge(
-        a1.obs["leiden"], left_on=["target"], right_index=True, suffixes=("_1", "_2")
+    t2 = 1 - get_distance(
+        pd.DataFrame(a2.X @ a1.varm["PCs"], index=a2.obs_names),
+        pd.DataFrame(a1.obsm["X_pca"], index=a1.obs_names),
+        "cosine",
     )
-    .groupby(["leiden_1", "leiden_2"])["cos_theta"]
-    .mean()
-    .reset_index()
-)
-# %%
-d3 = d1.pivot(index="leiden_1", columns="leiden_2", values="cos_theta")
-d4 = d2.pivot(index="leiden_1", columns="leiden_2", values="cos_theta")
 
-# %%
-sns.clustermap(d3.T)
-sns.clustermap(d4)
+    t1.to_csv(f"cao2019_npisc_ky21_stage_stage_{i}_{k1}_cos_theta.csv")
+    t2.to_csv(f"cao2019_npisc_ky21_stage_stage_{i}_{k2}_cos_theta.csv")
 
 # %%
 
-sns.clustermap(d3 + d4.T)
+for i, (k1, k2) in enumerate(adjacent(STAGES_SC)):
+    print(k1, k2)
+
+    t1 = pd.read_csv(
+        f"cao2019_npisc_ky21_stage_stage_{i}_{k1}_cos_theta.csv", index_col=0
+    )
+    t2 = pd.read_csv(
+        f"cao2019_npisc_ky21_stage_stage_{i}_{k2}_cos_theta.csv", index_col=0
+    )
+    a1 = sc.read_h5ad(f"cao2019_npisc_ky21_stage_stage_{i}_{k1}.h5ad")
+    a2 = sc.read_h5ad(f"cao2019_npisc_ky21_stage_stage_{i}_{k2}.h5ad")
+
+    d1 = (
+        t1.melt(ignore_index=False, var_name="target", value_name="cos_theta")
+        .reset_index(names="source")
+        .merge(a1.obs["leiden"], left_on=["source"], right_index=True)
+        .merge(
+            a2.obs["leiden"],
+            left_on=["target"],
+            right_index=True,
+            suffixes=(f"_{k1}", f"_{k2}"),
+        )
+        .groupby([f"leiden_{k1}", f"leiden_{k2}"])["cos_theta"]
+        .mean()
+        .reset_index()
+    )
+
+    d2 = (
+        t2.melt(ignore_index=False, var_name="target", value_name="cos_theta")
+        .reset_index(names="source")
+        .merge(a2.obs["leiden"], left_on=["source"], right_index=True)
+        .merge(
+            a1.obs["leiden"],
+            left_on=["target"],
+            right_index=True,
+            suffixes=(f"_{k2}", f"_{k1}"),
+        )
+        .groupby([f"leiden_{k2}", f"leiden_{k1}"])["cos_theta"]
+        .mean()
+        .reset_index()
+    )
+
+    d3 = d1.pivot(index=f"leiden_{k1}", columns=f"leiden_{k2}", values="cos_theta")
+    d4 = d2.pivot(index=f"leiden_{k2}", columns=f"leiden_{k1}", values="cos_theta")
+
+    sns.clustermap(d3 + d4.T)
 
 # %%
