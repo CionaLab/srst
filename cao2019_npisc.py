@@ -65,12 +65,6 @@ d_patterns = {
     for stage, df in dfs.items()
 }
 
-df_patterns = pd.concat(
-    [df.rename(index=lambda x: f"{key}_{x}") for key, df in d_patterns.items()],
-    axis=0,
-    sort=False,
-).fillna(False)
-
 # %%
 adata = sc.read_h5ad("cao2019_ky21.h5ad")
 adata_raw = sc.read_h5ad("cao2019_ky21_raw.h5ad")
@@ -111,16 +105,7 @@ STAGES_SUBCLUSTER = [
 ]
 
 # %%
-
-STAGES_GEOJSON = [
-    ("mid gastrula", "mid_gastrula.geojson", 6),
-    ("late gastrula", "late_gastrula.geojson", 7),
-    ("early neurula", "early_neurula.geojson", 10),
-    ("mid neurula", "mid_neurula.geojson", 11),
-    ("late neurula", "late_neurula.geojson", 12),
-]
-
-gdfs = {stage: (gpd.read_file(f"npisc/{file}"), l) for stage, file, l in STAGES_GEOJSON}
+gdfs = {k: (gpd.read_file(f"npisc/{file}"), l) for _, file, l, k in STAGES_IN_SITU}
 
 
 # %%
@@ -144,9 +129,9 @@ for k1, k2 in STAGES_SUBCLUSTER:
 
     t3 = pd.DataFrame({"cluster": t2.idxmax(axis=0), "cos_theta": t2.max(axis=0)})
 
-    t3.to_csv(f"cao2019_npisc_ky21_{k1}_cos_theta.csv")
+    t3.to_csv(f"cao2019_npisc_ky21_{k2}_cos_theta.csv")
 
-    v, l = gdfs[k1]
+    v, l = gdfs[k2]
     v = v.merge(t3, left_on="name", right_index=True)
     fig, ax = plt.subplots(1, 1)
     v.plot(
