@@ -17,6 +17,8 @@ from npisc.build_matrix import (
     adjacent,
 )
 
+from npisc.analyze_expression import diff_expression
+
 # %%
 PATTERN_STAGES = r"(early|mid|late) (gastrula|neurula)"
 PATTERN_CELLS = r"[Aa]\d+\.\d+$"
@@ -168,34 +170,11 @@ sc.pl.umap(adatas["midG"], color=["leiden"], legend_loc="on data")
 sc.pl.umap(adatas["midG"], color=["KY21:KY21.Chr1.422"])
 
 # %%
-
 NUM_TOP = 50
 
 for k in STAGES_SC:
     value = sc.read_h5ad(f"cao2019_npisc_ky21_{k}.h5ad")
-    sc.tl.rank_genes_groups(value, "leiden", method="t-test")
-    result = value.uns["rank_genes_groups"]
-    groups = result["names"].dtype.names
-
-    df_diff = pd.concat(
-        [
-            pd.DataFrame(
-                {
-                    "group": group,
-                    "gene": result["names"][group],
-                    "p_adj": result["pvals_adj"][group],
-                    "log2fc": result["logfoldchanges"][group],
-                }
-            )
-            for group in groups
-        ]
-    )
-
-    df_diff.groupby("group").apply(
-        lambda g: g[g["p_adj"] < 0.05]  # Filter step
-        .sort_values(by="log2fc", ascending=False)  # Sort step
-        .head(NUM_TOP)  # Select top 50 step
-    ).reset_index(drop=True).to_csv(
+    diff_expression(value, top=NUM_TOP).to_csv(
         f"cao2019_npisc_ky21_{k}_top{NUM_TOP}.csv", index=False
     )
 
