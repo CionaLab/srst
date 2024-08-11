@@ -214,23 +214,6 @@ for i, (k1, k2) in enumerate(adjacent(STAGES_SC)):
         "cosine",
     )
 
-    t1.to_csv(f"cao2019_npisc_ky21_stage_stage_{i}_{k1}_cos_theta.csv")
-    t2.to_csv(f"cao2019_npisc_ky21_stage_stage_{i}_{k2}_cos_theta.csv")
-
-# %%
-
-for i, (k1, k2) in enumerate(adjacent(STAGES_SC)):
-    print(k1, k2)
-
-    t1 = pd.read_csv(
-        f"cao2019_npisc_ky21_stage_stage_{i}_{k1}_cos_theta.csv", index_col=0
-    )
-    t2 = pd.read_csv(
-        f"cao2019_npisc_ky21_stage_stage_{i}_{k2}_cos_theta.csv", index_col=0
-    )
-    a1 = sc.read_h5ad(f"cao2019_npisc_ky21_stage_stage_{i}_{k1}.h5ad")
-    a2 = sc.read_h5ad(f"cao2019_npisc_ky21_stage_stage_{i}_{k2}.h5ad")
-
     d1 = (
         t1.melt(ignore_index=False, var_name="target", value_name="cos_theta")
         .reset_index(names="source")
@@ -264,6 +247,12 @@ for i, (k1, k2) in enumerate(adjacent(STAGES_SC)):
     d3 = d1.pivot(index=f"leiden_{k1}", columns=f"leiden_{k2}", values="cos_theta")
     d4 = d2.pivot(index=f"leiden_{k2}", columns=f"leiden_{k1}", values="cos_theta")
 
-    sns.clustermap(d3 + d4.T)
+    (d3 + d4.T).to_csv(f"cao2019_npisc_ky21_stage_stage_{k1}_{k2}.csv")
+
+# %%
+
+for k1, k2 in adjacent(STAGES_SC):
+    d5 = pd.read_csv(f"cao2019_npisc_ky21_stage_stage_{k1}_{k2}.csv", index_col=0)
+    sns.clustermap(d5)
 
 # %%
