@@ -170,13 +170,58 @@ sc.pl.umap(adatas["midG"], color=["leiden"], legend_loc="on data")
 sc.pl.umap(adatas["midG"], color=["KY21:KY21.Chr1.422"])
 
 # %%
+
+# Generate the BLAST map from the following:
+# \time blastp -db swissprot -taxids 9606 -query ky2021p.fasta -parse_deflines \
+# -outfmt "7 qacc sacc pident length mismatch gapopen qstart qend sstart send evalue bitscore qcovs" \
+# -out ky2021_swissprot.txt -num_threads 64 -mt_mode 1
+
+df_ky_sp = pd.read_csv(
+    "ky2021_swissprot.txt",
+    sep="\t",
+    names=[
+        "qseqid",
+        "sseqid",
+        "pident",
+        "length",
+        "mismatch",
+        "gapopen",
+        "qstart",
+        "qend",
+        "sstart",
+        "send",
+        "evalue",
+        "bitscore",
+        "coverage",
+    ],
+    comment="#",
+)
+df_ky_sp["qseqid"] = df_ky_sp["qseqid"].apply(lambda x: re.sub(r"\.v.+", "", x))
+df_ky_sp["qseqid"] = "KY21:" + df_ky_sp["qseqid"]
+
+df_ky_sp = df_ky_sp.loc[df_ky_sp.groupby("qseqid")["evalue"].idxmin()]
+
+(
+    pd.merge(
+        df_ky_sp, pd.read_csv("uniprot_data.csv"), left_on="sseqid", right_on="uniprot"
+    )
+    .groupby("qseqid")
+    .apply(lambda x: x.nsmallest(1, "evalue"))
+    .reset_index(drop=True)[["qseqid", "fullname"]]
+).to_csv("ky2021_swissprot_map.csv", index=False)
+
+# %%
+
+df_ky_sp = pd.read_csv("ky2021_swissprot_map.csv")
+
+# %%
 NUM_TOP = 50
 
 for k in STAGES_SC:
-    value = sc.read_h5ad(f"cao2019_npisc_ky21_{k}.h5ad")
-    diff_expression(value, top=NUM_TOP).to_csv(
-        f"cao2019_npisc_ky21_{k}_top{NUM_TOP}.csv", index=False
-    )
+    a = sc.read_h5ad(f"cao2019_npisc_ky21_{k}.h5ad")
+    diff_expression(a, top=NUM_TOP).merge(
+        df_ky_sp, left_on="gene", right_on="qseqid", how="left"
+    ).to_csv(f"cao2019_npisc_ky21_{k}_top{NUM_TOP}.csv", index=False)
 
 # %%
 
