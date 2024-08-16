@@ -350,8 +350,213 @@ d_shortest_paths = {
 STAGES_SUBCLUSTERS = [
     ("mid gastrula", "midG", ("5", "7", "10", "20")),
     ("early neurula", "earN", ("14", "16", "21")),
-    ("late neurula", "latN", ("0", "8", "18")),
+    ("late neurula", "latN", ("0", "8", "18", "25", "29")),
 ]
 
+# %%
+
+for _, k2, sbc in STAGES_SUBCLUSTERS:
+    adata = adatas[k2][adatas[k2].obs["leiden"].isin(sbc)]
+
+    sc.tl.pca(adata, svd_solver="arpack")
+    sc.pp.neighbors(adata, n_neighbors=10, n_pcs=50)
+    sc.tl.leiden(adata)
+    sc.tl.paga(adata)
+    sc.pl.paga(adata, plot=False)
+    sc.tl.umap(adata, init_pos="paga")
+
+    adata.write_h5ad(f"cao2019_npisc_ky21_np_{k2}.h5ad")
+
+# %%
+adatas_sbc = {
+    s: sc.read_h5ad(f"cao2019_npisc_ky21_np_{s}.h5ad") for _, s, _ in STAGES_SUBCLUSTERS
+}
+
+adatas_sbc_raw = {
+    k: append_raw(v, adata_raw[v.obs.index, v.var.index]) for k, v in adatas_sbc.items()
+}
+
+# %%
+
+for _, a1 in adatas_sbc.items():
+    sc.pl.umap(a1, color=["leiden"], legend_loc="on data")
+
+# %%
+
+for k1, k2, sbc in STAGES_SUBCLUSTERS:
+    print(k1)
+    d1, a1 = pad_compatible(d_patterns[k1], adatas_sbc_raw[k2])
+    sc.pp.normalize_total(a1, target_sum=1e4)
+    sc.pp.log1p(a1)
+    sc.tl.pca(a1, svd_solver="arpack")
+
+    t = 1 - get_distance(
+        d1 @ a1.varm["PCs"],
+        pd.DataFrame(a1.obsm["X_pca"], index=a1.obs_names),
+        "cosine",
+    )
+
+    sns.clustermap(t)
+
+    t2 = t.T.join(a1.obs["leiden"], how="left").groupby("leiden").mean()
+    sns.clustermap(t2.T)
+
+    t3 = pd.DataFrame({"cluster": t2.idxmax(axis=0), "cos_theta": t2.max(axis=0)})
+
+    t3.to_csv(f"cao2019_npisc_ky21_np_{k2}_cos_theta.csv")
+
+    v, l = gdfs[k2]
+    v = v.merge(t3, left_on="name", right_index=True)
+    fig, ax = plt.subplots(1, 1)
+    v.plot(
+        column="cos_theta",
+        cmap="rocket",
+        ax=ax,
+        linewidth=0.8,
+        edgecolor="0.8",
+        legend=True,
+        legend_kwds={"shrink": 0.3},
+        vmax=0.7,
+        vmin=0.1,
+    )
+    v.apply(
+        lambda x: ax.annotate(
+            text=f"{x["name"]}\n{x["cluster"]}",
+            xy=x.geometry.centroid.coords[0],
+            ha="center",
+            color="white",
+            fontsize=12,
+        ),
+        axis=1,
+    )
+    fig.set_size_inches(6, l)
+    plt.axis("off")
+    plt.show()
+
+# %%
+
+for _, k, _ in STAGES_SUBCLUSTERS:
+    a = sc.read_h5ad(f"cao2019_npisc_ky21_np_{k}.h5ad")
+    diff_expression(a, top=NUM_TOP).merge(
+        df_ky_sp, left_on="gene", right_on="qseqid", how="left"
+    ).to_csv(f"cao2019_npisc_ky21_np_{k}_top{NUM_TOP}.csv", index=False)
+
+# %%
+
+for i, ((_, k1, _), (_, k2, _)) in enumerate(adjacent(STAGES_SUBCLUSTERS)):
+    print(k1, k2)
+
+    a1, a2 = pad_compatible(adatas_sbc_raw[k1], adatas_sbc_raw[k2])
+    sc.pp.normalize_total(a1, target_sum=1e4)
+    sc.pp.log1p(a1)
+    sc.tl.pca(a1, svd_solver="arpack")
+    sc.pp.normalize_total(a2, target_sum=1e4)
+    sc.pp.log1p(a2)
+    sc.tl.pca(a2, svd_solver="arpack")
+
+    a1.write_h5ad(f"cao2019_npisc_ky21_np_stage_stage_{i}_{k1}.h5ad")
+    a2.write_h5ad(f"cao2019_npisc_ky21_np_stage_stage_{i}_{k2}.h5ad")
+
+# %%
+
+for i, ((_, k1, _), (_, k2, _)) in enumerate(adjacent(STAGES_SUBCLUSTERS)):
+    print(k1, k2)
+
+    a1 = sc.read_h5ad(f"cao2019_npisc_ky21_np_stage_stage_{i}_{k1}.h5ad")
+    a2 = sc.read_h5ad(f"cao2019_npisc_ky21_np_stage_stage_{i}_{k2}.h5ad")
+
+    t1 = 1 - get_distance(
+        pd.DataFrame(a1.X @ a2.varm["PCs"], index=a1.obs_names),
+        pd.DataFrame(a2.obsm["X_pca"], index=a2.obs_names),
+        "cosine",
+    )
+
+    t2 = 1 - get_distance(
+        pd.DataFrame(a2.X @ a1.varm["PCs"], index=a2.obs_names),
+        pd.DataFrame(a1.obsm["X_pca"], index=a1.obs_names),
+        "cosine",
+    )
+
+    d1 = (
+        t1.melt(ignore_index=False, var_name="target", value_name="cos_theta")
+        .reset_index(names="source")
+        .merge(a1.obs["leiden"], left_on=["source"], right_index=True)
+        .merge(
+            a2.obs["leiden"],
+            left_on=["target"],
+            right_index=True,
+            suffixes=(f"_{k1}", f"_{k2}"),
+        )
+        .groupby([f"leiden_{k1}", f"leiden_{k2}"])["cos_theta"]
+        .mean()
+        .reset_index()
+    )
+
+    d2 = (
+        t2.melt(ignore_index=False, var_name="target", value_name="cos_theta")
+        .reset_index(names="source")
+        .merge(a2.obs["leiden"], left_on=["source"], right_index=True)
+        .merge(
+            a1.obs["leiden"],
+            left_on=["target"],
+            right_index=True,
+            suffixes=(f"_{k2}", f"_{k1}"),
+        )
+        .groupby([f"leiden_{k2}", f"leiden_{k1}"])["cos_theta"]
+        .mean()
+        .reset_index()
+    )
+
+    d3 = d1.pivot(index=f"leiden_{k1}", columns=f"leiden_{k2}", values="cos_theta")
+    d4 = d2.pivot(index=f"leiden_{k2}", columns=f"leiden_{k1}", values="cos_theta")
+
+    (d3 + d4.T).to_csv(f"cao2019_npisc_ky21_np_stage_stage_{k1}_{k2}.csv")
+
+# %%
+
+G = nx.DiGraph()
+
+for (_, k1, _), (_, k2, _) in adjacent(STAGES_SUBCLUSTERS):
+    d5 = pd.read_csv(f"cao2019_npisc_ky21_np_stage_stage_{k1}_{k2}.csv", index_col=0)
+    edges = d5.stack().reset_index()
+    edges.columns = ["source", "target", "weight"]
+    edges["source"] = edges["source"].apply(lambda x: f"{k1}_{x}")
+    edges["target"] = edges["target"].apply(lambda x: f"{k2}_{x}")
+    edges["weight"] = 1 - edges["weight"]
+    edges = edges[edges["weight"] > 0]
+    G.add_weighted_edges_from(edges.values)
+
+# %%
+
+d_leidens = {
+    k: v.obs["leiden"].cat.categories.map(lambda x: f"{k}_{x}").to_list()
+    for k, v in adatas_sbc.items()
+}
+
+# %%
+
+df_shortest_paths = (
+    pd.DataFrame(
+        [
+            {
+                "source": s,
+                "target": t,
+                "distance": nx.shortest_path_length(
+                    G, source=s, target=t, weight="weight"
+                ),
+            }
+            for s in d_leidens["midG"]
+            for t in d_leidens["latN"]
+        ]
+    )
+    .groupby("source")
+    .apply(lambda x: x.nsmallest(1, "distance"))
+)
+
+d_shortest_paths = {
+    (s, t): nx.shortest_path(G, source=s, target=t, weight="weight")
+    for s in d_leidens["midG"]
+    for t in d_leidens["latN"]
+}
 
 # %%
