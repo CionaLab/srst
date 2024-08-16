@@ -4,6 +4,7 @@ import re
 import pandas as pd
 import scanpy as sc
 import numpy as np
+import networkx as nx
 import seaborn as sns
 
 import matplotlib.pyplot as plt
@@ -98,20 +99,18 @@ adatas_raw = {
     k: append_raw(v, adata_raw[v.obs.index, v.var.index]) for k, v in adatas.items()
 }
 
-# %%
 
-STAGES_SUBCLUSTER = [
+# %%
+gdfs = {k: (gpd.read_file(f"npisc/{file}"), l) for _, file, l, k in STAGES_IN_SITU}
+
+# %%
+STAGES_MAPPING = [
     ("mid gastrula", "midG"),
     ("early neurula", "earN"),
     ("late neurula", "latN"),
 ]
 
-# %%
-gdfs = {k: (gpd.read_file(f"npisc/{file}"), l) for _, file, l, k in STAGES_IN_SITU}
-
-
-# %%
-for k1, k2 in STAGES_SUBCLUSTER:
+for k1, k2 in STAGES_MAPPING:
     print(k1)
     d1, a1 = pad_compatible(d_patterns[k1], adatas_raw[k2])
     sc.pp.normalize_total(a1, target_sum=1e4)
@@ -162,8 +161,13 @@ for k1, k2 in STAGES_SUBCLUSTER:
     plt.show()
 
 # %%
-for k1, _ in STAGES_SUBCLUSTER:
+for k1, _ in STAGES_MAPPING:
     sns.clustermap(d_patterns[k1], cbar_pos=None)
+
+# %%
+for _, k2 in STAGES_MAPPING:
+    sc.pl.umap(adatas[k2], color=["leiden"], legend_loc="on data")
+    sc.pl.umap(adatas[k2], color=["KY21:KY21.Chr8.555"])
 
 # %%
 sc.pl.umap(adatas["midG"], color=["leiden"], legend_loc="on data")
@@ -213,9 +217,9 @@ df_ky_sp = df_ky_sp.loc[df_ky_sp.groupby("qseqid")["evalue"].idxmin()]
 # %%
 
 df_ky_sp = pd.read_csv("ky2021_swissprot_map.csv")
+NUM_TOP = 50
 
 # %%
-NUM_TOP = 50
 
 for k in STAGES_SC:
     a = sc.read_h5ad(f"cao2019_npisc_ky21_{k}.h5ad")
@@ -296,8 +300,58 @@ for i, (k1, k2) in enumerate(adjacent(STAGES_SC)):
 
 # %%
 
+G = nx.DiGraph()
+
 for k1, k2 in adjacent(STAGES_SC):
     d5 = pd.read_csv(f"cao2019_npisc_ky21_stage_stage_{k1}_{k2}.csv", index_col=0)
-    sns.clustermap(d5)
+    edges = d5.stack().reset_index()
+    edges.columns = ["source", "target", "weight"]
+    edges["source"] = edges["source"].apply(lambda x: f"{k1}_{x}")
+    edges["target"] = edges["target"].apply(lambda x: f"{k2}_{x}")
+    edges["weight"] = 1 - edges["weight"]
+    edges = edges[edges["weight"] > 0]
+    G.add_weighted_edges_from(edges.values)
+
+# %%
+
+d_leidens = {
+    k: v.obs["leiden"].cat.categories.map(lambda x: f"{k}_{x}").to_list()
+    for k, v in adatas.items()
+}
+
+# %%
+
+df_shortest_paths = (
+    pd.DataFrame(
+        [
+            {
+                "source": s,
+                "target": t,
+                "distance": nx.shortest_path_length(
+                    G, source=s, target=t, weight="weight"
+                ),
+            }
+            for s in d_leidens["midG"]
+            for t in d_leidens["latN"]
+        ]
+    )
+    .groupby("source")
+    .apply(lambda x: x.nsmallest(1, "distance"))
+)
+
+d_shortest_paths = {
+    (s, t): nx.shortest_path(G, source=s, target=t, weight="weight")
+    for s in d_leidens["midG"]
+    for t in d_leidens["latN"]
+}
+
+# %%
+
+STAGES_SUBCLUSTERS = [
+    ("mid gastrula", "midG", ("5", "7", "10", "20")),
+    ("early neurula", "earN", ("14", "16", "21")),
+    ("late neurula", "latN", ("0", "8", "18")),
+]
+
 
 # %%
