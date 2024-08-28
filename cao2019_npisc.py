@@ -7,7 +7,6 @@ import numpy as np
 import networkx as nx
 import seaborn as sns
 
-import matplotlib.pyplot as plt
 import geopandas as gpd
 
 from npisc.build_matrix import (
@@ -16,6 +15,8 @@ from npisc.build_matrix import (
     pad_compatible,
     append_raw,
     adjacent,
+    map_cells,
+    plot_np,
 )
 
 from npisc.analyze_expression import diff_expression
@@ -112,53 +113,16 @@ STAGES_MAPPING = [
 
 for k1, k2 in STAGES_MAPPING:
     print(k1)
-    d1, a1 = pad_compatible(d_patterns[k1], adatas_raw[k2])
-    sc.pp.normalize_total(a1, target_sum=1e4)
-    sc.pp.log1p(a1)
-    sc.tl.pca(a1, svd_solver="arpack")
 
-    t = 1 - get_distance(
-        d1 @ a1.varm["PCs"],
-        pd.DataFrame(a1.obsm["X_pca"], index=a1.obs_names),
-        "cosine",
-    )
+    t1, t2, t3 = map_cells(adatas_raw[k2], d_patterns[k1])
 
-    sns.clustermap(t)
+    sns.clustermap(t1)
 
-    t2 = t.T.join(a1.obs["leiden"], how="left").groupby("leiden").mean()
     sns.clustermap(t2.T)
-
-    t3 = pd.DataFrame({"cluster": t2.idxmax(axis=0), "cos_theta": t2.max(axis=0)})
 
     t3.to_csv(f"cao2019_npisc_ky21_{k2}_cos_theta.csv")
 
-    v, l = gdfs[k2]
-    v = v.merge(t3, left_on="name", right_index=True)
-    fig, ax = plt.subplots(1, 1)
-    v.plot(
-        column="cos_theta",
-        cmap="rocket",
-        ax=ax,
-        linewidth=0.8,
-        edgecolor="0.8",
-        legend=True,
-        legend_kwds={"shrink": 0.3},
-        vmax=0.7,
-        vmin=0.1,
-    )
-    v.apply(
-        lambda x: ax.annotate(
-            text=f"{x["name"]}\n{x["cluster"]}",
-            xy=x.geometry.centroid.coords[0],
-            ha="center",
-            color="white",
-            fontsize=12,
-        ),
-        axis=1,
-    )
-    fig.set_size_inches(6, l)
-    plt.axis("off")
-    plt.show()
+    plot_np(t3, *gdfs[k2])
 
 # %%
 for k1, _ in STAGES_MAPPING:
@@ -385,53 +349,16 @@ for _, a1 in adatas_sbc.items():
 
 for k1, k2, sbc in STAGES_SUBCLUSTERS:
     print(k1)
-    d1, a1 = pad_compatible(d_patterns[k1], adatas_sbc_raw[k2])
-    sc.pp.normalize_total(a1, target_sum=1e4)
-    sc.pp.log1p(a1)
-    sc.tl.pca(a1, svd_solver="arpack")
 
-    t = 1 - get_distance(
-        d1 @ a1.varm["PCs"],
-        pd.DataFrame(a1.obsm["X_pca"], index=a1.obs_names),
-        "cosine",
-    )
+    t1, t2, t3 = map_cells(adatas_sbc_raw[k2], d_patterns[k1])
 
-    sns.clustermap(t)
+    sns.clustermap(t1)
 
-    t2 = t.T.join(a1.obs["leiden"], how="left").groupby("leiden").mean()
     sns.clustermap(t2.T)
-
-    t3 = pd.DataFrame({"cluster": t2.idxmax(axis=0), "cos_theta": t2.max(axis=0)})
 
     t3.to_csv(f"cao2019_npisc_ky21_np_{k2}_cos_theta.csv")
 
-    v, l = gdfs[k2]
-    v = v.merge(t3, left_on="name", right_index=True)
-    fig, ax = plt.subplots(1, 1)
-    v.plot(
-        column="cos_theta",
-        cmap="rocket",
-        ax=ax,
-        linewidth=0.8,
-        edgecolor="0.8",
-        legend=True,
-        legend_kwds={"shrink": 0.3},
-        vmax=0.7,
-        vmin=0.1,
-    )
-    v.apply(
-        lambda x: ax.annotate(
-            text=f"{x["name"]}\n{x["cluster"]}",
-            xy=x.geometry.centroid.coords[0],
-            ha="center",
-            color="white",
-            fontsize=12,
-        ),
-        axis=1,
-    )
-    fig.set_size_inches(6, l)
-    plt.axis("off")
-    plt.show()
+    plot_np(t3, *gdfs[k2])
 
 # %%
 
