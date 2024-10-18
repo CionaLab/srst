@@ -8,6 +8,7 @@ import networkx as nx
 import seaborn as sns
 
 import geopandas as gpd
+import matplotlib.pyplot as plt
 
 from npisc.build_matrix import (
     split_adata,
@@ -27,11 +28,11 @@ PATTERN_STAGES = r"(early|mid|late) (gastrula|neurula)"
 PATTERN_CELLS = r"[Aa]\d+\.\d+$"
 
 STAGES_IN_SITU = [
-    ("mid gastrula", "mid_gastrula.geojson", 6, "midG"),
-    ("late gastrula", "late_gastrula.geojson", 7, "latG"),
-    ("early neurula", "early_neurula.geojson", 10, "earN"),
-    ("mid neurula", "mid_neurula.geojson", 11, "midN"),
-    ("late neurula", "late_neurula.geojson", 12, "latN"),
+    ("mid gastrula", "mid_gastrula.geojson", "midG"),
+    ("late gastrula", "late_gastrula.geojson", "latG"),
+    ("early neurula", "early_neurula.geojson", "earN"),
+    ("mid neurula", "mid_neurula.geojson", "midN"),
+    ("late neurula", "late_neurula.geojson", "latN"),
 ]
 
 # %%
@@ -102,7 +103,10 @@ adatas_raw = {
 }
 
 # %%
-gdfs = {k: (gpd.read_file(f"npisc/{file}"), l) for _, file, l, k in STAGES_IN_SITU}
+gdfs = {k: gpd.read_file(f"npisc/{file}") for _, file, k in STAGES_IN_SITU}
+
+for stage in gdfs:
+    gdfs[stage]["name"] = gdfs[stage]["name"].str.replace("*", "", regex=False)
 
 # %%
 STAGES_MAPPING = [
@@ -112,21 +116,39 @@ STAGES_MAPPING = [
 ]
 
 for k1, k2 in STAGES_MAPPING:
-    print(k1)
-
     t1, t2, t3 = map_cells(adatas_raw[k2], d_patterns[k1])
 
-    sns.clustermap(t1)
-
-    sns.clustermap(t2.T)
+    fig, ax = plt.subplots(figsize=(3, 3), dpi=300)
+    sc.pl.umap(adatas[k2], color=["leiden"], legend_loc="on data", ax=ax)
+    fig.tight_layout()
+    fig.savefig(f"cao2019_npisc_ky21_{k2}_umap.png")
 
     t3.to_csv(f"cao2019_npisc_ky21_{k2}_cos_theta.csv")
 
-    plot_np(t3, *gdfs[k2])
-
-# %%
-for k1, _ in STAGES_MAPPING:
-    sns.clustermap(d_patterns[k1], cbar_pos=None)
+    fig, ax = plt.subplots(figsize=(3, 3), dpi=300)
+    ax = plot_np(
+        t3,
+        gdfs[k2],
+        ax,
+        {
+            "column": "cos_theta",
+            "linewidth": 0.8,
+            "categorical": False,
+            "vmin": 0.1,
+            "vmax": 0.7,
+            "missing_kwds": {"color": "lightgrey"},
+            "cmap": sns.color_palette("rocket", as_cmap=True),
+        },
+        {
+            "color": "white",
+            "fontsize": 6,
+        },
+    )
+    ax.set_title(k1)
+    fig.tight_layout()
+    patch_col = ax.collections[0]
+    fig.colorbar(patch_col, ax=ax, shrink=0.5)
+    fig.savefig(f"cao2019_npisc_ky21_{k2}_np.png")
 
 # %%
 for _, k2 in STAGES_MAPPING:
