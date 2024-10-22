@@ -151,13 +151,9 @@ for k1, k2 in STAGES_MAPPING:
     fig.savefig(f"cao2019_npisc_ky21_{k2}_np.png")
 
 # %%
-for _, k2 in STAGES_MAPPING:
-    sc.pl.umap(adatas[k2], color=["leiden"], legend_loc="on data")
-    sc.pl.umap(adatas[k2], color=["KY21:KY21.Chr8.555"])
-
-# %%
-sc.pl.umap(adatas["midG"], color=["leiden"], legend_loc="on data")
-sc.pl.umap(adatas["midG"], color=["KY21:KY21.Chr1.422"])
+fig, ax = plt.subplots(figsize=(3, 3), dpi=300)
+sc.pl.umap(adatas["midG"], color=["KY21:KY21.Chr1.422"], ax=ax)
+fig.savefig("cao2019_npisc_midG_chr1.422.png")
 
 # %%
 
