@@ -310,23 +310,40 @@ adatas_sbc_raw = {
 
 # %%
 
-for _, a1 in adatas_sbc.items():
-    sc.pl.umap(a1, color=["leiden"], legend_loc="on data")
-
-# %%
-
-for k1, k2, sbc in STAGES_SUBCLUSTERS:
-    print(k1)
-
+for k1, k2, _ in STAGES_SUBCLUSTERS:
     t1, t2, t3 = map_cells(adatas_sbc_raw[k2], d_patterns[k1])
 
-    sns.clustermap(t1)
-
-    sns.clustermap(t2.T)
+    fig, ax = plt.subplots(figsize=(3, 3), dpi=300)
+    sc.pl.umap(adatas_sbc[k2], color=["leiden"], legend_loc="on data", ax=ax)
+    fig.tight_layout()
+    fig.savefig(f"cao2019_npisc_ky21_np_{k2}_umap.png")
 
     t3.to_csv(f"cao2019_npisc_ky21_np_{k2}_cos_theta.csv")
 
-    plot_np(t3, *gdfs[k2])
+    fig, ax = plt.subplots(figsize=(3, 3), dpi=300)
+    ax = plot_np(
+        t3,
+        gdfs[k2],
+        ax,
+        {
+            "column": "cos_theta",
+            "linewidth": 0.8,
+            "categorical": False,
+            "vmin": 0.1,
+            "vmax": 0.7,
+            "missing_kwds": {"color": "lightgrey"},
+            "cmap": sns.color_palette("rocket", as_cmap=True),
+        },
+        {
+            "color": "white",
+            "fontsize": 6,
+        },
+    )
+    ax.set_title(k1)
+    fig.tight_layout()
+    patch_col = ax.collections[0]
+    fig.colorbar(patch_col, ax=ax, shrink=0.5)
+    fig.savefig(f"cao2019_npisc_ky21_np_{k2}_np.png")
 
 # %%
 
