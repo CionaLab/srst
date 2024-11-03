@@ -6,7 +6,7 @@ sc.pp.filter_cells(adata, min_genes=200)
 sc.pp.filter_genes(adata, min_cells=3)
 
 # annotate the group of mitochondrial genes as 'mt'
-adata.var["mt"] = adata.var_names.str.startswith("ENSCIN")
+adata.var["mt"] = adata.var_names.str.startswith("KY21.MG0")
 sc.pp.calculate_qc_metrics(
     adata, qc_vars=["mt"], percent_top=None, log1p=False, inplace=True
 )

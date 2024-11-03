@@ -1,4 +1,5 @@
 import scanpy as sc
+import pandas as pd
 
 samples = [
     ("SRR9050987", "midG"),
@@ -26,7 +27,7 @@ samples = [
 
 adatas = [
     sc.read_10x_mtx(
-        f"/home/mys_721tx/WorkSpace/ciona/tcga/data/{s}/outs/filtered_feature_bc_matrix",
+        f"/mnt/storage/Projects/SRR/{s}/outs/filtered_feature_bc_matrix",
         var_names="gene_ids",
     )
     for s, _ in samples
@@ -39,6 +40,8 @@ for i, (a, (_, j)) in enumerate(zip(adatas, samples)):
 
 adata = sc.concat(adatas, fill_value=0)
 adata.obs_names_make_unique()
+gene_names = pd.read_csv("npisc/ky2021_gene_names.tsv", sep="\t", index_col=0)
+adata.var["gene_name"] = adata.var.index.map(gene_names["gene_name"])
 adata.var_names_make_unique()
 adata.obs["sample"] = adata.obs["sample"].astype("category")
 

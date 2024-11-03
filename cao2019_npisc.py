@@ -39,7 +39,6 @@ STAGES_IN_SITU = [
 df = pd.read_csv("npisc/pass_02.tsv", sep="\t")
 df_map = pd.read_csv("npisc/kh2012_ky2021_map.tsv", sep="\t")
 df_map["query"] = "KH2012:" + df_map["query"]
-df_map["subject"] = "KY21:" + df_map["subject"]
 df["Gene"] = df["Gene"].apply(lambda x: x.split(" ")[0])
 df = pd.merge(df, df_map, how="left", left_on="Gene", right_on="query")
 df = df.drop(columns=["Gene", "query"])
@@ -93,8 +92,6 @@ for key in adatas.keys():
 
 # %%
 STAGES_SC = ["midG", "earN", "latN", "iniT", "earT", "midT", "latTI", "latTII", "larva"]
-
-plots = ["leiden", "KY21:KY21.Chr2.490"]
 
 adatas = {s: sc.read_h5ad(f"cao2019_npisc_ky21_{s}.h5ad") for s in STAGES_SC}
 
@@ -151,9 +148,23 @@ for k1, k2 in STAGES_MAPPING:
     fig.savefig(f"cao2019_npisc_ky21_{k2}_np.png")
 
 # %%
-fig, ax = plt.subplots(figsize=(3, 3), dpi=300)
-sc.pl.umap(adatas["midG"], color=["KY21:KY21.Chr1.422"], ax=ax)
-fig.savefig("cao2019_npisc_midG_chr1.422.png")
+MARKERS = [
+    ("Chr1.422", "midG", "ebf"),
+    ("Chr4.720", "midG", "otx"),
+    ("Chr7.1003", "midG", "osbp2"),
+]
+
+fig, ax = plt.subplots(figsize=(6.5, 3), dpi=300)
+sc.pl.stacked_violin(
+    adatas["midG"],
+    [f"KY21:KY21.{g}" for g, _, _ in MARKERS],
+    groupby="leiden",
+    swap_axes=True,
+    ax=ax,
+)
+
+fig.tight_layout()
+fig.savefig("cao2019_npisc_midG_markers.png")
 
 # %%
 
@@ -183,7 +194,6 @@ df_ky_sp = pd.read_csv(
     comment="#",
 )
 df_ky_sp["qseqid"] = df_ky_sp["qseqid"].apply(lambda x: re.sub(r"\.v.+", "", x))
-df_ky_sp["qseqid"] = "KY21:" + df_ky_sp["qseqid"]
 
 df_ky_sp = df_ky_sp.loc[df_ky_sp.groupby("qseqid")["evalue"].idxmin()]
 
