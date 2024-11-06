@@ -1,29 +1,33 @@
 # %%
+
 import re
 
 import pandas as pd
 import scanpy as sc
-import numpy as np
 import networkx as nx
 import seaborn as sns
+import scvi
+import torch
 
 import geopandas as gpd
 import matplotlib.pyplot as plt
+import matplotlib.patheffects as pe
 
 from npisc.build_matrix import (
     split_adata,
-    pad_compatible,
-    append_raw,
     adjacent,
     map_cells,
     plot_np,
-    pca_raw,
-    round_trip_distance,
+    cross_stage_distance,
 )
 
 from npisc.analyze_expression import diff_expression
 
+torch.set_float32_matmul_precision("high")
+scvi.settings.dl_num_workers = 63
+
 # %%
+
 PATTERN_STAGES = r"(early|mid|late) (gastrula|neurula)"
 PATTERN_CELLS = r"[Aa]\d+\.\d+$"
 
@@ -35,7 +39,6 @@ STAGES_IN_SITU = [
     ("late neurula", "late_neurula.geojson", "latN"),
 ]
 
-# %%
 df = pd.read_csv("npisc/pass_02.tsv", sep="\t")
 df_map = pd.read_csv("npisc/kh2012_ky2021_map.tsv", sep="\t")
 df_map["query"] = "KH2012:" + df_map["query"]
@@ -71,52 +74,117 @@ d_patterns = {
 }
 
 # %%
-adata = sc.read_h5ad("cao2019_ky21.h5ad")
-adata_raw = sc.read_h5ad("cao2019_ky21_raw.h5ad")
 
-# %%
+adata = sc.read_h5ad("cao2019_ky21.h5ad")
 adatas = split_adata(adata, "stage")
 
 # %%
-for key in adatas.keys():
-    adata = adatas[key]
 
-    sc.tl.pca(adata, svd_solver="arpack")
-    sc.pp.neighbors(adata, n_neighbors=20, n_pcs=50)
-    sc.tl.leiden(adata)
-    sc.tl.paga(adata)
-    sc.pl.paga(adata, plot=False)
-    sc.tl.umap(adata, init_pos="paga")
+SCVI_LATENT_KEY = "X_scVI"
+SCVI_BASIS = "scVI_basis"
+SCVI_MDE_KEY = "X_scVI_MDE"
+SCVI_EXPRESSION_KEY = "scVI_normalized"
+
+# %%
+
+for key in adatas.keys():
+    adata = adatas[key].copy()
+
+    sc.pp.neighbors(
+        adata,
+        n_neighbors=20,
+        use_rep=SCVI_LATENT_KEY,
+    )
+
+    sc.tl.leiden(
+        adata,
+        flavor="igraph",
+        n_iterations=2,
+    )
+
+    adata.obsm[SCVI_MDE_KEY] = scvi.model.utils.mde(
+        adata.obsm[SCVI_LATENT_KEY],
+        accelerator="cpu",
+    )
+
+    sc.pp.pca(
+        adata,
+        layer=SCVI_EXPRESSION_KEY,
+        svd_solver="arpack",
+    )
+
+    sc.tl.umap(adata)
 
     adata.write_h5ad(f"cao2019_npisc_ky21_{key}.h5ad")
 
 # %%
-STAGES_SC = ["midG", "earN", "latN", "iniT", "earT", "midT", "latTI", "latTII", "larva"]
+
+STAGES_SC = [
+    "midG",
+    "earN",
+    "latN",
+    "iniT",
+    "earT",
+    "midT",
+    "latTI",
+    "latTII",
+    "larva",
+]
 
 adatas = {s: sc.read_h5ad(f"cao2019_npisc_ky21_{s}.h5ad") for s in STAGES_SC}
 
-adatas_raw = {
-    k: append_raw(v, adata_raw[v.obs.index, v.var.index]) for k, v in adatas.items()
-}
+# %%
+
+for a in adatas.values():
+    sc.pl.umap(
+        a,
+        color=["leiden"],
+        legend_loc="on data",
+        legend_fontoutline=2,
+        outline_color="white",
+    )
+
 
 # %%
+
 gdfs = {k: gpd.read_file(f"npisc/{file}") for _, file, k in STAGES_IN_SITU}
 
 for stage in gdfs:
     gdfs[stage]["name"] = gdfs[stage]["name"].str.replace("*", "", regex=False)
 
 # %%
+
 STAGES_MAPPING = [
     ("mid gastrula", "midG"),
     ("early neurula", "earN"),
     ("late neurula", "latN"),
 ]
 
+# %%
+
 for k1, k2 in STAGES_MAPPING:
-    t1, t2, t3 = map_cells(adatas_raw[k2], d_patterns[k1])
+    t1, t2, t3 = map_cells(
+        adatas[k2], d_patterns[k1], basis=SCVI_BASIS, use_rep=SCVI_LATENT_KEY
+    )
+
+    g = sns.clustermap(
+        t2,
+        xticklabels=1,
+        yticklabels=1,
+        figsize=(6.5, 9),
+    )
+
+    g.savefig(f"cao2019_npisc_ky21_{k2}_npmat.png", dpi=300)
 
     fig, ax = plt.subplots(figsize=(3, 3), dpi=300)
-    sc.pl.umap(adatas[k2], color=["leiden"], legend_loc="on data", ax=ax)
+    sc.pl.umap(
+        adatas[k2],
+        color=["leiden"],
+        legend_loc="on data",
+        legend_fontoutline=2,
+        outline_color="white",
+        ax=ax,
+    )
     fig.tight_layout()
     fig.savefig(f"cao2019_npisc_ky21_{k2}_umap.png")
 
@@ -137,34 +205,35 @@ for k1, k2 in STAGES_MAPPING:
             "cmap": sns.color_palette("rocket", as_cmap=True),
         },
         {
-            "color": "white",
+            "color": "black",
             "fontsize": 6,
+            "path_effects": [
+                pe.withStroke(linewidth=2, foreground="white"),
+            ],
         },
     )
     ax.set_title(k1)
     fig.tight_layout()
     patch_col = ax.collections[0]
     fig.colorbar(patch_col, ax=ax, shrink=0.5)
-    fig.savefig(f"cao2019_npisc_ky21_{k2}_np.png")
+    fig.savefig(f"cao2019_npisc_ky21_{k2}_npmap.png")
 
 # %%
-MARKERS = [
-    ("Chr1.422", "midG", "ebf"),
-    ("Chr4.720", "midG", "otx"),
-    ("Chr7.1003", "midG", "osbp2"),
-]
 
-fig, ax = plt.subplots(figsize=(6.5, 3), dpi=300)
-sc.pl.stacked_violin(
-    adatas["midG"],
-    [f"KY21:KY21.{g}" for g, _, _ in MARKERS],
-    groupby="leiden",
-    swap_axes=True,
-    ax=ax,
-)
+for k1, k2 in STAGES_MAPPING:
+    fig, ax = plt.subplots(figsize=(6.5, 9), dpi=300)
+    sc.pl.stacked_violin(
+        adatas[k2],
+        adatas[k2].var_names.intersection(d_patterns[k1].columns),
+        layer=SCVI_EXPRESSION_KEY,
+        groupby="leiden",
+        dendrogram=True,
+        ax=ax,
+    )
 
-fig.tight_layout()
-fig.savefig("cao2019_npisc_midG_markers.png")
+    fig.tight_layout()
+    fig.savefig(f"cao2019_npisc_ky21_{k2}_markers.png")
+
 
 # %%
 
@@ -199,7 +268,10 @@ df_ky_sp = df_ky_sp.loc[df_ky_sp.groupby("qseqid")["evalue"].idxmin()]
 
 (
     pd.merge(
-        df_ky_sp, pd.read_csv("uniprot_data.csv"), left_on="sseqid", right_on="uniprot"
+        df_ky_sp,
+        pd.read_csv("uniprot_data.csv"),
+        left_on="sseqid",
+        right_on="uniprot",
     )
     .groupby("qseqid")
     .apply(lambda x: x.nsmallest(1, "evalue"))
@@ -214,40 +286,39 @@ NUM_TOP = 50
 # %%
 
 for k in STAGES_SC:
-    a = sc.read_h5ad(f"cao2019_npisc_ky21_{k}.h5ad")
-    diff_expression(a, top=NUM_TOP).merge(
-        df_ky_sp, left_on="gene", right_on="qseqid", how="left"
-    ).to_csv(f"cao2019_npisc_ky21_{k}_top{NUM_TOP}.csv", index=False)
-
-# %%
-
-for i, (k1, k2) in enumerate(adjacent(STAGES_SC)):
-    print(k1, k2)
-
-    a1, a2 = pad_compatible(adatas_raw[k1], adatas_raw[k2])
-
-    pca_raw(a1).write_h5ad(f"cao2019_npisc_ky21_stage_stage_{i}_{k1}.h5ad")
-    pca_raw(a2).write_h5ad(f"cao2019_npisc_ky21_stage_stage_{i}_{k2}.h5ad")
-
-# %%
-
-
-for i, (k1, k2) in enumerate(adjacent(STAGES_SC)):
-    print(k1, k2)
-
-    a1 = sc.read_h5ad(f"cao2019_npisc_ky21_stage_stage_{i}_{k1}.h5ad")
-    a2 = sc.read_h5ad(f"cao2019_npisc_ky21_stage_stage_{i}_{k2}.h5ad")
-
-    round_trip_distance(a1, a2, k1, k2).to_csv(
-        f"cao2019_npisc_ky21_stage_stage_{k1}_{k2}.csv"
+    diff_expression(
+        adatas[k],
+        top=NUM_TOP,
+        layer=SCVI_EXPRESSION_KEY,
+    ).merge(
+        df_ky_sp,
+        left_on="gene",
+        right_on="qseqid",
+        how="left",
+    ).to_csv(
+        f"cao2019_npisc_ky21_{k}_top{NUM_TOP}.csv",
+        index=False,
     )
+
+
+# %%
+
+for i, (k1, k2) in enumerate(adjacent(STAGES_SC)):
+    print(k1, k2)
+
+    cross_stage_distance(
+        adatas[k1], adatas[k2], k1, k2, use_rep=SCVI_LATENT_KEY
+    ).to_csv(f"cao2019_npisc_ky21_stage_stage_{k1}_{k2}.csv")
 
 # %%
 
 G = nx.DiGraph()
 
 for k1, k2 in adjacent(STAGES_SC):
-    d5 = pd.read_csv(f"cao2019_npisc_ky21_stage_stage_{k1}_{k2}.csv", index_col=0)
+    d5 = pd.read_csv(
+        f"cao2019_npisc_ky21_stage_stage_{k1}_{k2}.csv",
+        index_col=0,
+    )
     edges = d5.stack().reset_index()
     edges.columns = ["source", "target", "weight"]
     edges["source"] = edges["source"].apply(lambda x: f"{k1}_{x}")
@@ -263,6 +334,9 @@ d_leidens = {
 
 # %%
 
+STATE_START = "midG"
+STATE_END = "larva"
+
 df_shortest_paths = (
     pd.DataFrame(
         [
@@ -273,58 +347,136 @@ df_shortest_paths = (
                     G, source=s, target=t, weight="weight"
                 ),
             }
-            for s in d_leidens["midG"]
-            for t in d_leidens["latN"]
+            for s in d_leidens[STATE_START]
+            for t in d_leidens[STATE_END]
         ]
     )
     .groupby("source")
     .apply(lambda x: x.nsmallest(1, "distance"))
 )
 
+
 d_shortest_paths = {
     (s, t): nx.shortest_path(G, source=s, target=t, weight="weight")
-    for s in d_leidens["midG"]
-    for t in d_leidens["latN"]
+    for s in d_leidens[STATE_START]
+    for t in d_leidens[STATE_END]
 }
 
 # %%
 
 STAGES_SUBCLUSTERS = [
-    ("mid gastrula", "midG", ("5", "7", "10", "20")),
-    ("early neurula", "earN", ("14", "16", "18", "21")),
-    ("late neurula", "latN", ("8", "17", "18", "25", "29")),
+    (
+        "mid gastrula",
+        "midG",
+        (
+            "16",
+            "5",
+            "7",
+            "11",
+            "19",
+            "0",
+            "15",
+        ),
+    ),
+    (
+        "early neurula",
+        "earN",
+        (
+            "12",
+            "2",
+            "22",
+            "8",
+            "15",
+            "5",
+            "10",
+            "13",
+            "14",
+        ),
+    ),
+    (
+        "late neurula",
+        "latN",
+        (
+            "3",
+            "17",
+            "4",
+            "24",
+            "34",
+            "11",
+            "35",
+            "27",
+            "31",
+            "15",
+            "16",
+            "29",
+            "14",
+        ),
+    ),
 ]
 
 # %%
 
 for _, k2, sbc in STAGES_SUBCLUSTERS:
-    adata = adatas[k2][adatas[k2].obs["leiden"].isin(sbc)]
+    adata = adatas[k2][adatas[k2].obs["leiden"].isin(sbc)].copy()
 
-    sc.tl.pca(adata, svd_solver="arpack")
-    sc.pp.neighbors(adata, n_neighbors=10, n_pcs=50)
-    sc.tl.leiden(adata)
-    sc.tl.paga(adata)
-    sc.pl.paga(adata, plot=False)
-    sc.tl.umap(adata, init_pos="paga")
+    sc.pp.neighbors(
+        adata,
+        n_neighbors=10,
+        use_rep=SCVI_LATENT_KEY,
+    )
+
+    sc.tl.leiden(
+        adata,
+        flavor="igraph",
+        n_iterations=2,
+    )
+
+    adata.obsm[SCVI_MDE_KEY] = scvi.model.utils.mde(
+        adata.obsm[SCVI_LATENT_KEY],
+        accelerator="cpu",
+    )
+
+    sc.pp.pca(
+        adata,
+        layer=SCVI_EXPRESSION_KEY,
+        svd_solver="arpack",
+    )
+
+    sc.tl.umap(adata)
 
     adata.write_h5ad(f"cao2019_npisc_ky21_np_{k2}.h5ad")
 
 # %%
+
 adatas_sbc = {
     s: sc.read_h5ad(f"cao2019_npisc_ky21_np_{s}.h5ad") for _, s, _ in STAGES_SUBCLUSTERS
-}
-
-adatas_sbc_raw = {
-    k: append_raw(v, adata_raw[v.obs.index, v.var.index]) for k, v in adatas_sbc.items()
 }
 
 # %%
 
 for k1, k2, _ in STAGES_SUBCLUSTERS:
-    t1, t2, t3 = map_cells(adatas_sbc_raw[k2], d_patterns[k1])
+    t1, t2, t3 = map_cells(
+        adatas_sbc[k2], d_patterns[k1], basis=SCVI_BASIS, use_rep=SCVI_LATENT_KEY
+    )
+
+    g = sns.clustermap(
+        t2,
+        xticklabels=1,
+        yticklabels=1,
+        figsize=(6.5, 9),
+    )
+
+    g.savefig(f"cao2019_npisc_ky21_np_{k2}_npmat.png", dpi=300)
 
     fig, ax = plt.subplots(figsize=(3, 3), dpi=300)
-    sc.pl.umap(adatas_sbc[k2], color=["leiden"], legend_loc="on data", ax=ax)
+    sc.pl.umap(
+        adatas_sbc[k2],
+        color=["leiden"],
+        legend_loc="on data",
+        legend_fontoutline=2,
+        outline_color="white",
+        ax=ax,
+    )
     fig.tight_layout()
     fig.savefig(f"cao2019_npisc_ky21_np_{k2}_umap.png")
 
@@ -345,52 +497,70 @@ for k1, k2, _ in STAGES_SUBCLUSTERS:
             "cmap": sns.color_palette("rocket", as_cmap=True),
         },
         {
-            "color": "white",
+            "color": "black",
             "fontsize": 6,
+            "path_effects": [
+                pe.withStroke(linewidth=2, foreground="white"),
+            ],
         },
     )
     ax.set_title(k1)
     fig.tight_layout()
     patch_col = ax.collections[0]
     fig.colorbar(patch_col, ax=ax, shrink=0.5)
-    fig.savefig(f"cao2019_npisc_ky21_np_{k2}_np.png")
+    fig.savefig(f"cao2019_npisc_ky21_np_{k2}_npmap.png")
+
+# %%
+
+for k1, k2 in STAGES_MAPPING:
+    fig, ax = plt.subplots(figsize=(6.5, 9), dpi=300)
+    sc.pl.stacked_violin(
+        adatas[k2],
+        adatas[k2].var_names.intersection(d_patterns[k1].columns),
+        layer=SCVI_EXPRESSION_KEY,
+        groupby="leiden",
+        dendrogram=True,
+        ax=ax,
+    )
+
+    fig.tight_layout()
+    fig.savefig(f"cao2019_npisc_ky21_np_{k2}_markers.png")
 
 # %%
 
 for _, k, _ in STAGES_SUBCLUSTERS:
-    a = sc.read_h5ad(f"cao2019_npisc_ky21_np_{k}.h5ad")
-    diff_expression(a, top=NUM_TOP).merge(
-        df_ky_sp, left_on="gene", right_on="qseqid", how="left"
-    ).to_csv(f"cao2019_npisc_ky21_np_{k}_top{NUM_TOP}.csv", index=False)
-
-# %%
-
-for i, ((_, k1, _), (_, k2, _)) in enumerate(adjacent(STAGES_SUBCLUSTERS)):
-    print(k1, k2)
-
-    a1, a2 = pad_compatible(adatas_sbc_raw[k1], adatas_sbc_raw[k2])
-
-    pca_raw(a1).write_h5ad(f"cao2019_npisc_ky21_np_stage_stage_{i}_{k1}.h5ad")
-    pca_raw(a2).write_h5ad(f"cao2019_npisc_ky21_np_stage_stage_{i}_{k2}.h5ad")
-
-# %%
-
-for i, ((_, k1, _), (_, k2, _)) in enumerate(adjacent(STAGES_SUBCLUSTERS)):
-    print(k1, k2)
-
-    a1 = sc.read_h5ad(f"cao2019_npisc_ky21_np_stage_stage_{i}_{k1}.h5ad")
-    a2 = sc.read_h5ad(f"cao2019_npisc_ky21_np_stage_stage_{i}_{k2}.h5ad")
-
-    round_trip_distance(a1, a2, k1, k2).to_csv(
-        f"cao2019_npisc_ky21_np_stage_stage_{k1}_{k2}.csv"
+    diff_expression(
+        adatas_sbc[k],
+        top=NUM_TOP,
+        layer=SCVI_EXPRESSION_KEY,
+    ).merge(
+        df_ky_sp,
+        left_on="gene",
+        right_on="qseqid",
+        how="left",
+    ).to_csv(
+        f"cao2019_npisc_ky21_np_{k}_top{NUM_TOP}.csv",
+        index=False,
     )
+
+# %%
+
+for i, ((_, k1, _), (_, k2, _)) in enumerate(adjacent(STAGES_SUBCLUSTERS)):
+    print(k1, k2)
+
+    cross_stage_distance(
+        adatas_sbc[k1], adatas_sbc[k2], k1, k2, use_rep=SCVI_LATENT_KEY
+    ).to_csv(f"cao2019_npisc_ky21_np_stage_stage_{k1}_{k2}.csv")
 
 # %%
 
 G = nx.DiGraph()
 
 for (_, k1, _), (_, k2, _) in adjacent(STAGES_SUBCLUSTERS):
-    d5 = pd.read_csv(f"cao2019_npisc_ky21_np_stage_stage_{k1}_{k2}.csv", index_col=0)
+    d5 = pd.read_csv(
+        f"cao2019_npisc_ky21_np_stage_stage_{k1}_{k2}.csv",
+        index_col=0,
+    )
     edges = d5.stack().reset_index()
     edges.columns = ["source", "target", "weight"]
     edges["source"] = edges["source"].apply(lambda x: f"{k1}_{x}")
@@ -406,6 +576,9 @@ d_leidens = {
 
 # %%
 
+STATE_START = "midG"
+STATE_END = "latN"
+
 df_shortest_paths = (
     pd.DataFrame(
         [
@@ -416,8 +589,8 @@ df_shortest_paths = (
                     G, source=s, target=t, weight="weight"
                 ),
             }
-            for s in d_leidens["midG"]
-            for t in d_leidens["latN"]
+            for s in d_leidens[STATE_START]
+            for t in d_leidens[STATE_END]
         ]
     )
     .groupby("source")
@@ -426,8 +599,8 @@ df_shortest_paths = (
 
 d_shortest_paths = {
     (s, t): nx.shortest_path(G, source=s, target=t, weight="weight")
-    for s in d_leidens["midG"]
-    for t in d_leidens["latN"]
+    for s in d_leidens[STATE_START]
+    for t in d_leidens[STATE_END]
 }
 
 # %%

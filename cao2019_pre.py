@@ -35,7 +35,7 @@ adatas = [
 
 
 for i, (a, (_, j)) in enumerate(zip(adatas, samples)):
-    a.obs["sample"] = i
+    a.obs["sample"] = f"{i + 1}"
     a.obs["stage"] = j
 
 adata = sc.concat(adatas, fill_value=0)
