@@ -15,10 +15,11 @@ import matplotlib.patheffects as pe
 
 from npisc.build_matrix import (
     split_adata,
-    adjacent,
     map_cells,
     plot_np,
-    cross_stage_distance,
+    make_stage_name,
+    make_digraph,
+    CrossStage,
 )
 
 from npisc.analyze_expression import diff_expression
@@ -88,34 +89,34 @@ SCVI_EXPRESSION_KEY = "scVI_normalized"
 # %%
 
 for key in adatas.keys():
-    adata = adatas[key].copy()
+    a_tmp = adatas[key].copy()
 
     sc.pp.neighbors(
-        adata,
+        a_tmp,
         n_neighbors=20,
         use_rep=SCVI_LATENT_KEY,
     )
 
     sc.tl.leiden(
-        adata,
+        a_tmp,
         flavor="igraph",
         n_iterations=2,
     )
 
-    adata.obsm[SCVI_MDE_KEY] = scvi.model.utils.mde(
-        adata.obsm[SCVI_LATENT_KEY],
+    a_tmp.obsm[SCVI_MDE_KEY] = scvi.model.utils.mde(
+        a_tmp.obsm[SCVI_LATENT_KEY],
         accelerator="cpu",
     )
 
     sc.pp.pca(
-        adata,
+        a_tmp,
         layer=SCVI_EXPRESSION_KEY,
         svd_solver="arpack",
     )
 
-    sc.tl.umap(adata)
+    sc.tl.umap(a_tmp)
 
-    adata.write_h5ad(f"cao2019_npisc_ky21_{key}.h5ad")
+    a_tmp.write_h5ad(f"cao2019_npisc_ky21_{key}.h5ad")
 
 # %%
 
@@ -132,18 +133,6 @@ STAGES_SC = [
 ]
 
 adatas = {s: sc.read_h5ad(f"cao2019_npisc_ky21_{s}.h5ad") for s in STAGES_SC}
-
-# %%
-
-for a in adatas.values():
-    sc.pl.umap(
-        a,
-        color=["leiden"],
-        legend_loc="on data",
-        legend_fontoutline=2,
-        outline_color="white",
-    )
-
 
 # %%
 
@@ -222,13 +211,19 @@ for k1, k2 in STAGES_MAPPING:
 
 for k1, k2 in STAGES_MAPPING:
     fig, ax = plt.subplots(figsize=(6.5, 9), dpi=300)
-    sc.pl.stacked_violin(
+    vp = sc.pl.stacked_violin(
         adatas[k2],
         adatas[k2].var_names.intersection(d_patterns[k1].columns),
-        layer=SCVI_EXPRESSION_KEY,
         groupby="leiden",
         dendrogram=True,
         ax=ax,
+        return_fig=True,
+    )
+    d_ax = vp.get_axes()
+    d_ax["mainplot_ax"].set_xticklabels(
+        adatas[k2]
+        .var.loc[adatas[k2].var_names.intersection(d_patterns[k1].columns)]["gene_name"]
+        .to_list(),
     )
 
     fig.tight_layout()
@@ -303,64 +298,59 @@ for k in STAGES_SC:
 
 # %%
 
-for i, (k1, k2) in enumerate(adjacent(STAGES_SC)):
-    print(k1, k2)
+dg = make_digraph(adatas, STAGES_SC, use_rep=SCVI_LATENT_KEY)
 
-    cross_stage_distance(
-        adatas[k1], adatas[k2], k1, k2, use_rep=SCVI_LATENT_KEY
-    ).to_csv(f"cao2019_npisc_ky21_stage_stage_{k1}_{k2}.csv")
-
-# %%
-
-G = nx.DiGraph()
-
-for k1, k2 in adjacent(STAGES_SC):
-    d5 = pd.read_csv(
-        f"cao2019_npisc_ky21_stage_stage_{k1}_{k2}.csv",
-        index_col=0,
-    )
-    edges = d5.stack().reset_index()
-    edges.columns = ["source", "target", "weight"]
-    edges["source"] = edges["source"].apply(lambda x: f"{k1}_{x}")
-    edges["target"] = edges["target"].apply(lambda x: f"{k2}_{x}")
-    G.add_weighted_edges_from(edges.values)
+nx.write_gml(dg, "cao2019_npisc_ky21_cross_stage.gml")
 
 # %%
 
 d_leidens = {
-    k: v.obs["leiden"].cat.categories.map(lambda x: f"{k}_{x}").to_list()
+    k: v.obs["leiden"].cat.categories.map(make_stage_name(k)).to_list()
     for k, v in adatas.items()
 }
 
-# %%
+dg = nx.read_gml("cao2019_npisc_ky21_cross_stage.gml")
 
 STATE_START = "midG"
 STATE_END = "larva"
 
-df_shortest_paths = (
-    pd.DataFrame(
-        [
-            {
-                "source": s,
-                "target": t,
-                "distance": nx.shortest_path_length(
-                    G, source=s, target=t, weight="weight"
-                ),
-            }
-            for s in d_leidens[STATE_START]
-            for t in d_leidens[STATE_END]
-        ]
-    )
-    .groupby("source")
-    .apply(lambda x: x.nsmallest(1, "distance"))
+cs = CrossStage(
+    dg,
+    d_leidens[STATE_START],
+    d_leidens[STATE_END],
 )
 
+# %%
 
-d_shortest_paths = {
-    (s, t): nx.shortest_path(G, source=s, target=t, weight="weight")
-    for s in d_leidens[STATE_START]
-    for t in d_leidens[STATE_END]
-}
+NP_SOURCES = [
+    (
+        "midG",
+        (
+            "2",
+            "10",
+            "14",
+        ),
+    ),
+    (
+        "earN",
+        (
+            "7",
+            "23",
+            "6",
+            "16",
+        ),
+    ),
+]
+
+for s, l in NP_SOURCES:
+    try:
+        cs.update_internal(d_leidens[f"{s}"], d_leidens[STATE_END])
+        for i in l:
+            print(cs.find_paths(f"{s}_{i}"))
+    except KeyError:
+        pass
+    except nx.NetworkXNoPath:
+        pass
 
 # %%
 
@@ -369,28 +359,19 @@ STAGES_SUBCLUSTERS = [
         "mid gastrula",
         "midG",
         (
-            "16",
-            "5",
-            "7",
-            "11",
-            "19",
-            "0",
-            "15",
+            "2",
+            "10",
+            "14",
         ),
     ),
     (
         "early neurula",
         "earN",
         (
-            "12",
-            "2",
-            "22",
-            "8",
-            "15",
-            "5",
-            "10",
-            "13",
-            "14",
+            "7",
+            "23",
+            "6",
+            "16",
         ),
     ),
     (
@@ -398,53 +379,45 @@ STAGES_SUBCLUSTERS = [
         "latN",
         (
             "3",
-            "17",
-            "4",
-            "24",
-            "34",
-            "11",
-            "35",
-            "27",
-            "31",
-            "15",
             "16",
-            "29",
-            "14",
+            "23",
         ),
     ),
 ]
 
 # %%
 
+adatas = {s: sc.read_h5ad(f"cao2019_npisc_ky21_{s}.h5ad") for s in STAGES_SC}
+
 for _, k2, sbc in STAGES_SUBCLUSTERS:
-    adata = adatas[k2][adatas[k2].obs["leiden"].isin(sbc)].copy()
+    a_tmp = adatas[k2][adatas[k2].obs["leiden"].isin(sbc)].copy()
 
     sc.pp.neighbors(
-        adata,
+        a_tmp,
         n_neighbors=10,
         use_rep=SCVI_LATENT_KEY,
     )
 
     sc.tl.leiden(
-        adata,
+        a_tmp,
         flavor="igraph",
         n_iterations=2,
     )
 
-    adata.obsm[SCVI_MDE_KEY] = scvi.model.utils.mde(
-        adata.obsm[SCVI_LATENT_KEY],
+    a_tmp.obsm[SCVI_MDE_KEY] = scvi.model.utils.mde(
+        a_tmp.obsm[SCVI_LATENT_KEY],
         accelerator="cpu",
     )
 
     sc.pp.pca(
-        adata,
+        a_tmp,
         layer=SCVI_EXPRESSION_KEY,
         svd_solver="arpack",
     )
 
-    sc.tl.umap(adata)
+    sc.tl.umap(a_tmp)
 
-    adata.write_h5ad(f"cao2019_npisc_ky21_np_{k2}.h5ad")
+    a_tmp.write_h5ad(f"cao2019_npisc_ky21_np_{k2}.h5ad")
 
 # %%
 
@@ -514,13 +487,21 @@ for k1, k2, _ in STAGES_SUBCLUSTERS:
 
 for k1, k2 in STAGES_MAPPING:
     fig, ax = plt.subplots(figsize=(6.5, 9), dpi=300)
-    sc.pl.stacked_violin(
-        adatas[k2],
-        adatas[k2].var_names.intersection(d_patterns[k1].columns),
-        layer=SCVI_EXPRESSION_KEY,
+    vp = sc.pl.stacked_violin(
+        adatas_sbc[k2],
+        adatas_sbc[k2].var_names.intersection(d_patterns[k1].columns),
         groupby="leiden",
         dendrogram=True,
         ax=ax,
+        return_fig=True,
+    )
+    d_ax = vp.get_axes()
+    d_ax["mainplot_ax"].set_xticklabels(
+        adatas_sbc[k2]
+        .var.loc[adatas_sbc[k2].var_names.intersection(d_patterns[k1].columns)][
+            "gene_name"
+        ]
+        .to_list(),
     )
 
     fig.tight_layout()
@@ -545,62 +526,41 @@ for _, k, _ in STAGES_SUBCLUSTERS:
 
 # %%
 
-for i, ((_, k1, _), (_, k2, _)) in enumerate(adjacent(STAGES_SUBCLUSTERS)):
-    print(k1, k2)
+dg_sbc = make_digraph(
+    adatas_sbc,
+    [k for _, k, _ in STAGES_SUBCLUSTERS],
+    use_rep=SCVI_LATENT_KEY,
+)
 
-    cross_stage_distance(
-        adatas_sbc[k1], adatas_sbc[k2], k1, k2, use_rep=SCVI_LATENT_KEY
-    ).to_csv(f"cao2019_npisc_ky21_np_stage_stage_{k1}_{k2}.csv")
-
-# %%
-
-G = nx.DiGraph()
-
-for (_, k1, _), (_, k2, _) in adjacent(STAGES_SUBCLUSTERS):
-    d5 = pd.read_csv(
-        f"cao2019_npisc_ky21_np_stage_stage_{k1}_{k2}.csv",
-        index_col=0,
-    )
-    edges = d5.stack().reset_index()
-    edges.columns = ["source", "target", "weight"]
-    edges["source"] = edges["source"].apply(lambda x: f"{k1}_{x}")
-    edges["target"] = edges["target"].apply(lambda x: f"{k2}_{x}")
-    G.add_weighted_edges_from(edges.values)
+nx.write_gml(dg_sbc, "cao2019_npisc_ky21_np_cross_stage.gml")
 
 # %%
 
-d_leidens = {
-    k: v.obs["leiden"].cat.categories.map(lambda x: f"{k}_{x}").to_list()
+d_leidens_sbc = {
+    k: v.obs["leiden"].cat.categories.map(make_stage_name(k)).to_list()
     for k, v in adatas_sbc.items()
 }
 
-# %%
+dg_sbc = nx.read_gml("cao2019_npisc_ky21_np_cross_stage.gml")
 
 STATE_START = "midG"
 STATE_END = "latN"
 
-df_shortest_paths = (
-    pd.DataFrame(
-        [
-            {
-                "source": s,
-                "target": t,
-                "distance": nx.shortest_path_length(
-                    G, source=s, target=t, weight="weight"
-                ),
-            }
-            for s in d_leidens[STATE_START]
-            for t in d_leidens[STATE_END]
-        ]
-    )
-    .groupby("source")
-    .apply(lambda x: x.nsmallest(1, "distance"))
+cs_sbc = CrossStage(
+    dg_sbc,
+    d_leidens_sbc[STATE_START],
+    d_leidens_sbc[STATE_END],
 )
 
-d_shortest_paths = {
-    (s, t): nx.shortest_path(G, source=s, target=t, weight="weight")
-    for s in d_leidens[STATE_START]
-    for t in d_leidens[STATE_END]
-}
+# %%
+for k, v in d_leidens_sbc.items():
+    try:
+        cs_sbc.update_internal(d_leidens_sbc[k], d_leidens_sbc[STATE_END])
+        for i in v:
+            print(cs_sbc.find_paths(i))
+    except KeyError:
+        pass
+    except nx.NetworkXNoPath:
+        pass
 
 # %%
