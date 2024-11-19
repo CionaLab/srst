@@ -76,31 +76,30 @@ d_patterns = {
 
 # %%
 
-adata = sc.read_h5ad("cao2019_ky21.h5ad")
-adatas = split_adata(adata, "stage")
-
-# %%
-
 SCVI_LATENT_KEY = "X_scVI"
 SCVI_BASIS = "scVI_basis"
 SCVI_MDE_KEY = "X_scVI_MDE"
 SCVI_EXPRESSION_KEY = "scVI_normalized"
+SCVI_LOG1P_KEY = "scVI_log1p"
 
 # %%
+
+adata = sc.read_h5ad("cao2019_ky21.h5ad")
+adatas = split_adata(adata, "stage")
 
 for key in adatas.keys():
     a_tmp = adatas[key].copy()
 
     sc.pp.neighbors(
         a_tmp,
-        n_neighbors=20,
+        n_neighbors=100,
         use_rep=SCVI_LATENT_KEY,
     )
 
     sc.tl.leiden(
         a_tmp,
         flavor="igraph",
-        n_iterations=2,
+        n_iterations=-1,
     )
 
     a_tmp.obsm[SCVI_MDE_KEY] = scvi.model.utils.mde(
@@ -166,8 +165,9 @@ for k1, k2 in STAGES_MAPPING:
     g.savefig(f"cao2019_npisc_ky21_{k2}_npmat.png", dpi=300)
 
     fig, ax = plt.subplots(figsize=(3, 3), dpi=300)
-    sc.pl.umap(
+    sc.pl.embedding(
         adatas[k2],
+        basis=SCVI_MDE_KEY,
         color=["leiden"],
         legend_loc="on data",
         legend_fontoutline=2,
@@ -189,7 +189,7 @@ for k1, k2 in STAGES_MAPPING:
             "linewidth": 0.8,
             "categorical": False,
             "vmin": 0.1,
-            "vmax": 0.7,
+            "vmax": 1.0,
             "missing_kwds": {"color": "lightgrey"},
             "cmap": sns.color_palette("rocket", as_cmap=True),
         },
@@ -215,7 +215,7 @@ for k1, k2 in STAGES_MAPPING:
         adatas[k2],
         adatas[k2].var_names.intersection(d_patterns[k1].columns),
         groupby="leiden",
-        dendrogram=True,
+        layer=SCVI_LOG1P_KEY,
         ax=ax,
         return_fig=True,
     )
@@ -284,7 +284,7 @@ for k in STAGES_SC:
     diff_expression(
         adatas[k],
         top=NUM_TOP,
-        layer=SCVI_EXPRESSION_KEY,
+        layer=SCVI_LOG1P_KEY,
     ).merge(
         df_ky_sp,
         left_on="gene",
@@ -326,18 +326,18 @@ NP_SOURCES = [
     (
         "midG",
         (
-            "2",
+            "9",
+            "21",
+            "7",
             "10",
-            "14",
         ),
     ),
     (
         "earN",
         (
-            "7",
-            "23",
-            "6",
-            "16",
+            "8",
+            "9",
+            "22",
         ),
     ),
 ]
@@ -359,33 +359,36 @@ STAGES_SUBCLUSTERS = [
         "mid gastrula",
         "midG",
         (
-            "2",
+            "9",
+            "21",
+            "7",
             "10",
-            "14",
         ),
     ),
     (
         "early neurula",
         "earN",
         (
-            "7",
-            "23",
-            "6",
-            "16",
+            "8",
+            "9",
+            "22",
         ),
     ),
     (
         "late neurula",
         "latN",
         (
-            "3",
-            "16",
+            "6",
+            "13",
+            "25",
+            "30",
+            "12",
+            "28",
+            "2",
             "23",
         ),
     ),
 ]
-
-# %%
 
 adatas = {s: sc.read_h5ad(f"cao2019_npisc_ky21_{s}.h5ad") for s in STAGES_SC}
 
@@ -394,14 +397,14 @@ for _, k2, sbc in STAGES_SUBCLUSTERS:
 
     sc.pp.neighbors(
         a_tmp,
-        n_neighbors=10,
+        n_neighbors=50,
         use_rep=SCVI_LATENT_KEY,
     )
 
     sc.tl.leiden(
         a_tmp,
         flavor="igraph",
-        n_iterations=2,
+        n_iterations=-1,
     )
 
     a_tmp.obsm[SCVI_MDE_KEY] = scvi.model.utils.mde(
@@ -442,8 +445,9 @@ for k1, k2, _ in STAGES_SUBCLUSTERS:
     g.savefig(f"cao2019_npisc_ky21_np_{k2}_npmat.png", dpi=300)
 
     fig, ax = plt.subplots(figsize=(3, 3), dpi=300)
-    sc.pl.umap(
+    sc.pl.embedding(
         adatas_sbc[k2],
+        basis=SCVI_MDE_KEY,
         color=["leiden"],
         legend_loc="on data",
         legend_fontoutline=2,
@@ -465,7 +469,7 @@ for k1, k2, _ in STAGES_SUBCLUSTERS:
             "linewidth": 0.8,
             "categorical": False,
             "vmin": 0.1,
-            "vmax": 0.7,
+            "vmax": 1.0,
             "missing_kwds": {"color": "lightgrey"},
             "cmap": sns.color_palette("rocket", as_cmap=True),
         },
@@ -491,7 +495,7 @@ for k1, k2 in STAGES_MAPPING:
         adatas_sbc[k2],
         adatas_sbc[k2].var_names.intersection(d_patterns[k1].columns),
         groupby="leiden",
-        dendrogram=True,
+        layer=SCVI_LOG1P_KEY,
         ax=ax,
         return_fig=True,
     )
@@ -513,7 +517,7 @@ for _, k, _ in STAGES_SUBCLUSTERS:
     diff_expression(
         adatas_sbc[k],
         top=NUM_TOP,
-        layer=SCVI_EXPRESSION_KEY,
+        layer=SCVI_LOG1P_KEY,
     ).merge(
         df_ky_sp,
         left_on="gene",
@@ -553,6 +557,7 @@ cs_sbc = CrossStage(
 )
 
 # %%
+
 for k, v in d_leidens_sbc.items():
     try:
         cs_sbc.update_internal(d_leidens_sbc[k], d_leidens_sbc[STATE_END])

@@ -1,3 +1,4 @@
+import numpy as np
 import scanpy as sc
 import scvi
 import torch
@@ -5,36 +6,26 @@ import torch
 torch.set_float32_matmul_precision("high")
 scvi.settings.dl_num_workers = 63
 
-adata = sc.read_h5ad("cao2019_ky21_raw.h5ad")
+SCAR_LATENT_KEY = "X_scAR"
+SCAR_LAYER = "denoised"
+BATCH_KEY = "sample"
+COUNTS_LAYER = "counts"
+LIBRARY_SIZE = 1e4
 
-# annotate the group of mitochondrial genes as 'mt'
-adata.var["mt"] = adata.var_names.str.startswith("KY21.MG0")
-sc.pp.calculate_qc_metrics(
-    adata,
-    qc_vars=["mt"],
-    percent_top=None,
-    log1p=False,
-    inplace=True,
-)
-
-sc.pp.filter_cells(adata, min_genes=100)
-sc.pp.filter_genes(adata, min_cells=3)
-
-sc.pp.scrublet(adata, batch_key="sample")
-
-adata.layers["counts"] = adata.X.copy()
-sc.pp.normalize_total(adata, target_sum=1e4)
-sc.pp.log1p(adata)
-adata.raw = adata
+adata = sc.read_h5ad("cao2019_ky21_denoised.h5ad")
 
 sc.pp.highly_variable_genes(
     adata,
     n_top_genes=8000,
     subset=True,
-    batch_key="sample",
+    batch_key=BATCH_KEY,
 )
 
-scvi.model.LinearSCVI.setup_anndata(adata, layer="counts", batch_key="sample")
+scvi.model.LinearSCVI.setup_anndata(
+    adata,
+    layer=SCAR_LAYER,
+    batch_key=BATCH_KEY,
+)
 
 model = scvi.model.LinearSCVI(
     adata,
@@ -42,25 +33,39 @@ model = scvi.model.LinearSCVI(
 )
 
 model.train(
-    max_epochs=250,
-    check_val_every_n_epoch=10,
+    check_val_every_n_epoch=1,
+    max_epochs=800,
+    early_stopping=True,
+    early_stopping_patience=20,
+    early_stopping_monitor="elbo_validation",
 )
 
 SCVI_BASIS = "scVI_basis"
 
-adata.varm["scVI_basis"] = model.get_loadings()
+adata.varm[SCVI_BASIS] = model.get_loadings()
 
 SCVI_LATENT_KEY = "X_scVI"
 adata.obsm[SCVI_LATENT_KEY] = model.get_latent_representation()
 
 SCVI_EXPRESSION_KEY = "scVI_normalized"
-adata.layers[SCVI_EXPRESSION_KEY] = model.get_normalized_expression()
+adata.layers[SCVI_EXPRESSION_KEY] = model.get_normalized_expression(
+    library_size=LIBRARY_SIZE,
+)
+
+SCVI_LOG1P_KEY = "scVI_log1p"
+adata.layers[SCVI_LOG1P_KEY] = np.log1p(
+    adata.layers[SCVI_EXPRESSION_KEY],
+)
 
 sc.pp.neighbors(
     adata,
     use_rep=SCVI_LATENT_KEY,
 )
-sc.tl.leiden(adata, flavor="igraph", n_iterations=2)
+sc.tl.leiden(
+    adata,
+    flavor="igraph",
+    n_iterations=-1,
+)
 
 SCVI_MDE_KEY = "X_scVI_MDE"
 adata.obsm[SCVI_MDE_KEY] = scvi.model.utils.mde(
