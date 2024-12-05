@@ -38,6 +38,9 @@ scvi.external.SCAR.get_ambient_profile(
 model = scvi.external.SCAR(
     adata,
     ambient_profile="ambient_profile",
+    n_hidden=256,
+    n_latent=35,
+    n_layers=2,
 )
 
 model.train(
@@ -46,6 +49,7 @@ model.train(
     early_stopping=True,
     early_stopping_patience=20,
     early_stopping_monitor="elbo_validation",
+    plan_kwargs={"lr": 0.001687},
 )
 
 SCAR_LATENT_KEY = "X_scAR"

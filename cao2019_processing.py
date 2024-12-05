@@ -29,7 +29,10 @@ scvi.model.LinearSCVI.setup_anndata(
 
 model = scvi.model.LinearSCVI(
     adata,
-    n_latent=10,
+    gene_likelihood="nb",
+    n_hidden=256,
+    n_latent=40,
+    n_layers=1,
 )
 
 model.train(
@@ -38,6 +41,7 @@ model.train(
     early_stopping=True,
     early_stopping_patience=20,
     early_stopping_monitor="elbo_validation",
+    plan_kwargs={"lr": 0.005054},
 )
 
 SCVI_BASIS = "scVI_basis"
