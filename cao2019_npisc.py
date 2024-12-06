@@ -22,8 +22,6 @@ from npisc.build_matrix import (
     CrossStage,
 )
 
-from npisc.analyze_expression import diff_expression
-
 torch.set_float32_matmul_precision("high")
 scvi.settings.dl_num_workers = 63
 
@@ -188,8 +186,6 @@ for k1, k2 in STAGES_MAPPING:
             "column": "cos_theta",
             "linewidth": 0.8,
             "categorical": False,
-            "vmin": 0.1,
-            "vmax": 1.0,
             "missing_kwds": {"color": "lightgrey"},
             "cmap": sns.color_palette("rocket", as_cmap=True),
         },
@@ -229,73 +225,6 @@ for k1, k2 in STAGES_MAPPING:
     fig.tight_layout()
     fig.savefig(f"cao2019_npisc_ky21_{k2}_markers.png")
 
-
-# %%
-
-# Generate the BLAST map from the following:
-# \time blastp -db swissprot -taxids 9606 -query ky2021p.fasta -parse_deflines \
-# -outfmt "7 qacc sacc pident length mismatch gapopen qstart qend sstart send evalue bitscore qcovs" \
-# -out ky2021_swissprot.txt -num_threads 64 -mt_mode 1
-
-df_ky_sp = pd.read_csv(
-    "ky2021_swissprot.txt",
-    sep="\t",
-    names=[
-        "qseqid",
-        "sseqid",
-        "pident",
-        "length",
-        "mismatch",
-        "gapopen",
-        "qstart",
-        "qend",
-        "sstart",
-        "send",
-        "evalue",
-        "bitscore",
-        "coverage",
-    ],
-    comment="#",
-)
-df_ky_sp["qseqid"] = df_ky_sp["qseqid"].apply(lambda x: re.sub(r"\.v.+", "", x))
-
-df_ky_sp = df_ky_sp.loc[df_ky_sp.groupby("qseqid")["evalue"].idxmin()]
-
-(
-    pd.merge(
-        df_ky_sp,
-        pd.read_csv("uniprot_data.csv"),
-        left_on="sseqid",
-        right_on="uniprot",
-    )
-    .groupby("qseqid")
-    .apply(lambda x: x.nsmallest(1, "evalue"))
-    .reset_index(drop=True)[["qseqid", "fullname"]]
-).to_csv("ky2021_swissprot_map.csv", index=False)
-
-# %%
-
-df_ky_sp = pd.read_csv("ky2021_swissprot_map.csv")
-NUM_TOP = 50
-
-# %%
-
-for k in STAGES_SC:
-    diff_expression(
-        adatas[k],
-        top=NUM_TOP,
-        layer=SCVI_LOG1P_KEY,
-    ).merge(
-        df_ky_sp,
-        left_on="gene",
-        right_on="qseqid",
-        how="left",
-    ).to_csv(
-        f"cao2019_npisc_ky21_{k}_top{NUM_TOP}.csv",
-        index=False,
-    )
-
-
 # %%
 
 dg = make_digraph(adatas, STAGES_SC, use_rep=SCVI_LATENT_KEY)
@@ -312,7 +241,7 @@ d_leidens = {
 dg = nx.read_gml("cao2019_npisc_ky21_cross_stage.gml")
 
 STATE_START = "midG"
-STATE_END = "larva"
+STATE_END = "latN"
 
 cs = CrossStage(
     dg,
@@ -326,18 +255,19 @@ NP_SOURCES = [
     (
         "midG",
         (
-            "9",
-            "21",
+            "11",
+            "14",
             "7",
-            "10",
+            "9",
         ),
     ),
     (
         "earN",
         (
-            "8",
+            "4",
+            "12",
             "9",
-            "22",
+            "13",
         ),
     ),
 ]
@@ -359,33 +289,37 @@ STAGES_SUBCLUSTERS = [
         "mid gastrula",
         "midG",
         (
-            "9",
-            "21",
+            "11",
+            "14",
             "7",
-            "10",
+            "9",
         ),
     ),
     (
         "early neurula",
         "earN",
         (
-            "8",
+            "4",
+            "12",
             "9",
-            "22",
+            "13",
         ),
     ),
     (
         "late neurula",
         "latN",
         (
-            "6",
-            "13",
-            "25",
-            "30",
-            "12",
-            "28",
-            "2",
             "23",
+            "2",
+            "29",
+            "3",
+            "20",
+            "9",
+            "11",
+            "27",
+            "18",
+            "6",
+            "30",
         ),
     ),
 ]
@@ -468,8 +402,6 @@ for k1, k2, _ in STAGES_SUBCLUSTERS:
             "column": "cos_theta",
             "linewidth": 0.8,
             "categorical": False,
-            "vmin": 0.1,
-            "vmax": 1.0,
             "missing_kwds": {"color": "lightgrey"},
             "cmap": sns.color_palette("rocket", as_cmap=True),
         },
@@ -510,23 +442,6 @@ for k1, k2 in STAGES_MAPPING:
 
     fig.tight_layout()
     fig.savefig(f"cao2019_npisc_ky21_np_{k2}_markers.png")
-
-# %%
-
-for _, k, _ in STAGES_SUBCLUSTERS:
-    diff_expression(
-        adatas_sbc[k],
-        top=NUM_TOP,
-        layer=SCVI_LOG1P_KEY,
-    ).merge(
-        df_ky_sp,
-        left_on="gene",
-        right_on="qseqid",
-        how="left",
-    ).to_csv(
-        f"cao2019_npisc_ky21_np_{k}_top{NUM_TOP}.csv",
-        index=False,
-    )
 
 # %%
 
