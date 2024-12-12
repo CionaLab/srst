@@ -205,28 +205,6 @@ for k1, k2 in STAGES_MAPPING:
 
 # %%
 
-for k1, k2 in STAGES_MAPPING:
-    fig, ax = plt.subplots(figsize=(6.5, 9), dpi=300)
-    vp = sc.pl.stacked_violin(
-        adatas[k2],
-        adatas[k2].var_names.intersection(d_patterns[k1].columns),
-        groupby="leiden",
-        layer=SCVI_LOG1P_KEY,
-        ax=ax,
-        return_fig=True,
-    )
-    d_ax = vp.get_axes()
-    d_ax["mainplot_ax"].set_xticklabels(
-        adatas[k2]
-        .var.loc[adatas[k2].var_names.intersection(d_patterns[k1].columns)]["gene_name"]
-        .to_list(),
-    )
-
-    fig.tight_layout()
-    fig.savefig(f"cao2019_npisc_ky21_{k2}_markers.png")
-
-# %%
-
 dg = make_digraph(adatas, STAGES_SC, use_rep=SCVI_LATENT_KEY)
 
 nx.write_gml(dg, "cao2019_npisc_ky21_cross_stage.gml")
@@ -418,30 +396,6 @@ for k1, k2, _ in STAGES_SUBCLUSTERS:
     patch_col = ax.collections[0]
     fig.colorbar(patch_col, ax=ax, shrink=0.5)
     fig.savefig(f"cao2019_npisc_ky21_np_{k2}_npmap.png")
-
-# %%
-
-for k1, k2 in STAGES_MAPPING:
-    fig, ax = plt.subplots(figsize=(6.5, 9), dpi=300)
-    vp = sc.pl.stacked_violin(
-        adatas_sbc[k2],
-        adatas_sbc[k2].var_names.intersection(d_patterns[k1].columns),
-        groupby="leiden",
-        layer=SCVI_LOG1P_KEY,
-        ax=ax,
-        return_fig=True,
-    )
-    d_ax = vp.get_axes()
-    d_ax["mainplot_ax"].set_xticklabels(
-        adatas_sbc[k2]
-        .var.loc[adatas_sbc[k2].var_names.intersection(d_patterns[k1].columns)][
-            "gene_name"
-        ]
-        .to_list(),
-    )
-
-    fig.tight_layout()
-    fig.savefig(f"cao2019_npisc_ky21_np_{k2}_markers.png")
 
 # %%
 
