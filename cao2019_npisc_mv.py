@@ -5,6 +5,42 @@ import scanpy as sc
 
 import matplotlib.pyplot as plt
 
+
+def make_marker(
+    adata: sc.AnnData,
+    d_pattern: pd.DataFrame,
+    df_de: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Identify and sort marker genes based on differential expression analysis.
+
+    :param adata: Annotated data matrix.
+    :type adata: sc.AnnData
+    :param d_pattern: DataFrame containing gene patterns.
+    :type d_pattern: pd.DataFrame
+    :param df_de: DataFrame containing differential expression results.
+    :type df_de: pd.DataFrame
+
+    :return: DataFrame with sorted marker genes.
+    :rtype: pd.DataFrame
+    """
+
+    m = adata.var_names.intersection(d_pattern.columns)
+
+    m_sorted = (
+        df_de[
+            df_de["qseqid"].isin(m) & df_de["is_de_fdr_0.05"] & (df_de["lfc_mean"] > 1)
+        ]
+        .groupby("qseqid")
+        .size()
+        .sort_values(ascending=False)
+        .index
+    )
+
+    m_sorted = adata.var.loc[m_sorted]["gene_name"].reset_index()
+    return m_sorted
+
+
 PATTERN_STAGES = r"(early|mid|late) (gastrula|neurula)"
 PATTERN_CELLS = r"[Aa]\d+\.\d+$"
 
@@ -66,7 +102,9 @@ adata = sc.read_h5ad("cao2019_ky21.h5ad")
 
 adatas = {s: sc.read_h5ad(f"cao2019_npisc_ky21_{s}.h5ad") for _, s in STAGES_MAPPING}
 
-adatas_sbc = {s: sc.read_h5ad(f"cao2019_npisc_ky21_np_{s}.h5ad") for _, s in STAGES_MAPPING}
+adatas_sbc = {
+    s: sc.read_h5ad(f"cao2019_npisc_ky21_np_{s}.h5ad") for _, s in STAGES_MAPPING
+}
 
 df_des = {
     k: pd.read_csv(f"cao2019_npisc_ky21_{k}_de.csv", index_col=0)
@@ -75,24 +113,21 @@ df_des = {
 
 for k1, k2 in STAGES_MAPPING:
 
-    markers = adatas[k2].var_names.intersection(d_patterns[k1].columns)
+    markers_sorted = make_marker(
+        adatas[k2],
+        d_patterns[k1],
+        df_des[k2],
+    )
 
-    markers_sorted = (
-        df_des[k2][
-            df_des[k2]["qseqid"].isin(markers)
-            & df_des[k2]["is_de_fdr_0.05"]
-            & (df_des[k2]["lfc_mean"] > 1)
-        ]
-        .groupby("qseqid")
-        .size()
-        .sort_values(ascending=False)
-        .index
+    markers_sorted.to_csv(
+        f"cao2019_npisc_ky21_{k2}_markers.csv",
+        index=False,
     )
 
     fig, ax = plt.subplots(figsize=(6.5, 9), dpi=300)
     vp = sc.pl.stacked_violin(
         adatas[k2],
-        markers_sorted,
+        markers_sorted["qseqid"],
         groupby="leiden",
         layer=SCVI_LOG1P_KEY,
         ax=ax,
@@ -100,7 +135,7 @@ for k1, k2 in STAGES_MAPPING:
     )
     d_ax = vp.get_axes()
     d_ax["mainplot_ax"].set_xticklabels(
-        adatas[k2].var.loc[markers_sorted]["gene_name"].to_list(),
+        markers_sorted["gene_name"],
     )
 
     fig.tight_layout()
@@ -113,24 +148,21 @@ df_des_np = {
 
 for k1, k2 in STAGES_MAPPING:
 
-    markers = adatas_sbc[k2].var_names.intersection(d_patterns[k1].columns)
+    markers_sorted = make_marker(
+        adatas_sbc[k2],
+        d_patterns[k1],
+        df_des_np[k2],
+    )
 
-    markers_sorted = (
-        df_des[k2][
-            df_des[k2]["qseqid"].isin(markers)
-            & df_des[k2]["is_de_fdr_0.05"]
-            & (df_des[k2]["lfc_mean"] > 1)
-        ]
-        .groupby("qseqid")
-        .size()
-        .sort_values(ascending=False)
-        .index
+    markers_sorted.to_csv(
+        f"cao2019_npisc_ky21_np_{k2}_markers.csv",
+        index=False,
     )
 
     fig, ax = plt.subplots(figsize=(6.5, 9), dpi=300)
     vp = sc.pl.stacked_violin(
         adatas_sbc[k2],
-        markers_sorted,
+        markers_sorted["qseqid"],
         groupby="leiden",
         layer=SCVI_LOG1P_KEY,
         ax=ax,
@@ -138,7 +170,7 @@ for k1, k2 in STAGES_MAPPING:
     )
     d_ax = vp.get_axes()
     d_ax["mainplot_ax"].set_xticklabels(
-        adatas_sbc[k2].var.loc[markers_sorted]["gene_name"].to_list(),
+        markers_sorted["gene_name"],
     )
 
     fig.tight_layout()
