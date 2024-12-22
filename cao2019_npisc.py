@@ -150,7 +150,10 @@ STAGES_MAPPING = [
 
 for k1, k2 in STAGES_MAPPING:
     t1, t2, t3 = map_cells(
-        adatas[k2], d_patterns[k1], basis=SCVI_BASIS, use_rep=SCVI_LATENT_KEY
+        adatas[k2],
+        d_patterns[k1],
+        basis=SCVI_BASIS,
+        use_rep=SCVI_LATENT_KEY,
     )
 
     g = sns.clustermap(
@@ -205,7 +208,11 @@ for k1, k2 in STAGES_MAPPING:
 
 # %%
 
-dg = make_digraph(adatas, STAGES_SC, use_rep=SCVI_LATENT_KEY)
+dg = make_digraph(
+    adatas,
+    STAGES_SC,
+    use_rep=SCVI_LATENT_KEY,
+)
 
 nx.write_gml(dg, "cao2019_npisc_ky21_cross_stage.gml")
 
@@ -301,6 +308,8 @@ STAGES_SUBCLUSTERS = [
         ),
     ),
 ]
+
+# %%
 
 adatas = {s: sc.read_h5ad(f"cao2019_npisc_ky21_{s}.h5ad") for s in STAGES_SC}
 
