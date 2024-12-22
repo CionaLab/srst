@@ -1,0 +1,3 @@
+[submodule "npisc"]
+	path = npisc
+	url = git@github.com:mys721tx/npisc.git
