@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patheffects as pe
 
 from npisc.build_matrix import (
+    adjacent,
     split_adata,
     map_cells,
     plot_np,
@@ -236,6 +237,32 @@ cs = CrossStage(
 
 # %%
 
+df_edges = nx.to_pandas_edgelist(dg)
+
+for (_, k1), (_, k2) in adjacent(STAGES_MAPPING):
+    edges = df_edges[
+        df_edges["source"].str.contains(k1) & df_edges["target"].str.contains(k2)
+    ]
+
+    pivot_edges = 1 - edges.pivot(
+        index="source",
+        columns="target",
+        values="weight",
+    ).fillna(0)
+
+    g = sns.clustermap(
+        pivot_edges,
+        cmap="rocket",
+        square=True,
+        xticklabels=True,
+        yticklabels=True,
+        figsize=(6.5, 6.5),
+    )
+
+    g.savefig(f"cao2019_npisc_ky21_cross_stage_{k1}_{k2}.png", dpi=300)
+
+# %%
+
 NP_SOURCES = [
     (
         "midG",
@@ -445,5 +472,31 @@ for k, v in d_leidens_sbc.items():
         pass
     except nx.NetworkXNoPath:
         pass
+
+# %%
+
+df_sbc_edges = nx.to_pandas_edgelist(dg_sbc)
+
+for (_, k1, _), (_, k2, _) in adjacent(STAGES_SUBCLUSTERS):
+    edges = df_sbc_edges[
+        df_sbc_edges["source"].str.contains(k1) & df_sbc_edges["target"].str.contains(k2)
+    ]
+
+    pivot_edges = 1 - edges.pivot(
+        index="source",
+        columns="target",
+        values="weight",
+    ).fillna(0)
+
+    g = sns.clustermap(
+        pivot_edges,
+        cmap="rocket",
+        square=True,
+        xticklabels=True,
+        yticklabels=True,
+        figsize=(6.5, 6.5),
+    )
+
+    g.savefig(f"cao2019_npisc_ky21_np_cross_stage_{k1}_{k2}.png", dpi=300)
 
 # %%
