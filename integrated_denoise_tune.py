@@ -12,27 +12,41 @@ from scvi import autotune
 torch.set_float32_matmul_precision("high")
 scvi.settings.dl_num_workers = 63
 
-SCAR_LATENT_KEY = "X_scAR"
-SCAR_LAYER = "denoised"
+PREFIX = "integrated"
+GENOME = "ky21"
+
+adata = sc.read_h5ad(f"{PREFIX}_{GENOME}_raw.h5ad")
+
+# annotate the group of mitochondrial genes as 'mt'
+adata.var["mt"] = adata.var_names.str.startswith("KY21.MG0")
+sc.pp.calculate_qc_metrics(
+    adata,
+    qc_vars=["mt"],
+    percent_top=None,
+    log1p=False,
+    inplace=True,
+)
+
+sc.pp.filter_cells(adata, min_genes=100)
+sc.pp.filter_genes(adata, min_cells=3)
+
 BATCH_KEY = "sample"
-COUNTS_LAYER = "counts"
-LIBRARY_SIZE = 1e4
 
-adata = sc.read_h5ad("cao2019_ky21_denoised.h5ad")
+adata_raw = sc.read_h5ad(f"{PREFIX}_{GENOME}_raw.h5ad")
 
-sc.pp.highly_variable_genes(
+scvi.external.SCAR.setup_anndata(
     adata,
-    n_top_genes=8000,
-    subset=True,
     batch_key=BATCH_KEY,
 )
 
-model_cls = scvi.model.LinearSCVI
-model_cls.setup_anndata(
-    adata,
-    layer=SCAR_LAYER,
-    batch_key=BATCH_KEY,
+scvi.external.SCAR.get_ambient_profile(
+    adata=adata,
+    raw_adata=adata_raw,
+    prob=0.9,
 )
+
+model_cls = scvi.external.SCAR
+model_cls.setup_anndata(adata)
 
 search_space = {
     "model_params": {
@@ -45,10 +59,10 @@ search_space = {
         ),
         "n_latent": tune.choice(
             [
-                10,
-                20,
-                30,
-                40,
+                15,
+                25,
+                35,
+                45,
             ]
         ),
         "n_layers": tune.choice(
@@ -81,7 +95,7 @@ results = autotune.run_autotune(
     },
 )
 
-results.result_grid.get_dataframe().to_csv("cao2019_processing_hps.csv")
+results.result_grid.get_dataframe().to_csv(f"{PREFIX}_{GENOME}_denoise_hps.csv")
 
 print(
     results.result_grid.get_best_result(

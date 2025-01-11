@@ -9,19 +9,22 @@ import torch
 torch.set_float32_matmul_precision("high")
 scvi.settings.dl_num_workers = 63
 
+PREFIX = "integrated"
+GENOME = "ky21"
+
 STAGES_SC = [
     "midG",
     "earN",
     "latN",
 ]
 
-adata = sc.read_h5ad("cao2019_ky21.h5ad")
+adata = sc.read_h5ad(f"{PREFIX}_{GENOME}.h5ad")
 
-model = scvi.model.LinearSCVI.load("cao2019_ky21_scvi")
+model = scvi.model.LinearSCVI.load(f"{PREFIX}_{GENOME}_scvi")
 
-adatas = {s: sc.read_h5ad(f"cao2019_npisc_ky21_{s}.h5ad") for s in STAGES_SC}
+adatas = {s: sc.read_h5ad(f"{PREFIX}_{GENOME}_npisc_{s}.h5ad") for s in STAGES_SC}
 
-adatas_sbc = {s: sc.read_h5ad(f"cao2019_npisc_ky21_np_{s}.h5ad") for s in STAGES_SC}
+adatas_sbc = {s: sc.read_h5ad(f"{PREFIX}_{GENOME}_npisc_np_{s}.h5ad") for s in STAGES_SC}
 
 # Generate the BLAST map from the following:
 # \time blastp -db swissprot -taxids 9606 -query ky2021p.fasta -parse_deflines \
@@ -90,7 +93,7 @@ for k in STAGES_SC:
             how="left",
         )
         .to_csv(
-            f"cao2019_npisc_ky21_{k}_de.csv",
+            f"{PREFIX}_{GENOME}_npisc_{k}_de.csv",
             index=False,
         )
     )
@@ -118,7 +121,7 @@ for k in STAGES_SC:
             how="left",
         )
         .to_csv(
-            f"cao2019_npisc_ky21_np_{k}_de.csv",
+            f"{PREFIX}_{GENOME}_npisc_np_{k}_de.csv",
             index=False,
         )
     )

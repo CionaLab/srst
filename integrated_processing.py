@@ -6,13 +6,16 @@ import torch
 torch.set_float32_matmul_precision("high")
 scvi.settings.dl_num_workers = 63
 
+PREFIX = "integrated"
+GENOME = "ky21"
+
 SCAR_LATENT_KEY = "X_scAR"
 SCAR_LAYER = "denoised"
 BATCH_KEY = "sample"
 COUNTS_LAYER = "counts"
 LIBRARY_SIZE = 1e4
 
-adata = sc.read_h5ad("cao2019_ky21_denoised.h5ad")
+adata = sc.read_h5ad(f"{PREFIX}_{GENOME}_denoised.h5ad")
 
 sc.pp.highly_variable_genes(
     adata,
@@ -33,6 +36,7 @@ model = scvi.model.LinearSCVI(
     n_hidden=256,
     n_latent=40,
     n_layers=1,
+    dispersion="gene-batch",
 )
 
 model.train(
@@ -41,7 +45,7 @@ model.train(
     early_stopping=True,
     early_stopping_patience=20,
     early_stopping_monitor="elbo_validation",
-    plan_kwargs={"lr": 0.005054},
+    plan_kwargs={"lr": 0.003223950082189226},
 )
 
 SCVI_BASIS = "scVI_basis"
@@ -84,10 +88,10 @@ sc.pp.pca(
 
 sc.tl.umap(adata)
 
-adata.write_h5ad("cao2019_ky21.h5ad")
+adata.write_h5ad(f"{PREFIX}_{GENOME}.h5ad")
 
 model.save(
-    "cao2019_ky21_scvi",
+    f"{PREFIX}_{GENOME}_scvi",
     overwrite=True,
     save_anndata=True,
 )

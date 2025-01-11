@@ -5,7 +5,10 @@ import torch
 torch.set_float32_matmul_precision("high")
 scvi.settings.dl_num_workers = 63
 
-adata = sc.read_h5ad("cao2019_ky21_raw.h5ad")
+PREFIX = "integrated"
+GENOME = "ky21"
+
+adata = sc.read_h5ad(f"{PREFIX}_{GENOME}_raw.h5ad")
 
 # annotate the group of mitochondrial genes as 'mt'
 adata.var["mt"] = adata.var_names.str.startswith("KY21.MG0")
@@ -22,7 +25,7 @@ sc.pp.filter_genes(adata, min_cells=3)
 
 BATCH_KEY = "sample"
 
-adata_raw = sc.read_h5ad("cao2019_ky21_raw.h5ad")
+adata_raw = sc.read_h5ad(f"{PREFIX}_{GENOME}_raw.h5ad")
 
 scvi.external.SCAR.setup_anndata(
     adata,
@@ -39,8 +42,8 @@ model = scvi.external.SCAR(
     adata,
     ambient_profile="ambient_profile",
     n_hidden=256,
-    n_latent=35,
-    n_layers=2,
+    n_latent=15,
+    n_layers=4,
 )
 
 model.train(
@@ -49,7 +52,7 @@ model.train(
     early_stopping=True,
     early_stopping_patience=20,
     early_stopping_monitor="elbo_validation",
-    plan_kwargs={"lr": 0.001687},
+    plan_kwargs={"lr": 0.0009472442989920969},
 )
 
 SCAR_LATENT_KEY = "X_scAR"
@@ -69,10 +72,10 @@ sc.pp.normalize_total(
 sc.pp.log1p(adata)
 adata.raw = adata
 
-adata.write_h5ad("cao2019_ky21_denoised.h5ad")
+adata.write_h5ad(f"{PREFIX}_{GENOME}_denoised.h5ad")
 
 model.save(
-    "cao2019_ky21_scar",
+    f"{PREFIX}_{GENOME}_scar",
     overwrite=True,
     save_anndata=True,
 )

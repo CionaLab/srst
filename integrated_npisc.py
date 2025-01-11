@@ -26,6 +26,9 @@ from npisc.build_matrix import (
 torch.set_float32_matmul_precision("high")
 scvi.settings.dl_num_workers = 63
 
+PREFIX = "integrated"
+GENOME = "ky21"
+
 # %%
 
 PATTERN_STAGES = r"(early|mid|late) (gastrula|neurula)"
@@ -83,7 +86,7 @@ SCVI_LOG1P_KEY = "scVI_log1p"
 
 # %%
 
-adata = sc.read_h5ad("cao2019_ky21.h5ad")
+adata = sc.read_h5ad(f"{PREFIX}_{GENOME}.h5ad")
 adatas = split_adata(adata, "stage")
 
 for key in adatas.keys():
@@ -114,7 +117,7 @@ for key in adatas.keys():
 
     sc.tl.umap(a_tmp)
 
-    a_tmp.write_h5ad(f"cao2019_npisc_ky21_{key}.h5ad")
+    a_tmp.write_h5ad(f"{PREFIX}_{GENOME}_npisc_{key}.h5ad")
 
 # %%
 
@@ -130,7 +133,7 @@ STAGES_SC = [
     "larva",
 ]
 
-adatas = {s: sc.read_h5ad(f"cao2019_npisc_ky21_{s}.h5ad") for s in STAGES_SC}
+adatas = {s: sc.read_h5ad(f"{PREFIX}_{GENOME}_npisc_{s}.h5ad") for s in STAGES_SC}
 
 # %%
 
@@ -164,7 +167,7 @@ for k1, k2 in STAGES_MAPPING:
         figsize=(6.5, 9),
     )
 
-    g.savefig(f"cao2019_npisc_ky21_{k2}_npmat.png", dpi=300)
+    g.savefig(f"{PREFIX}_{GENOME}_npisc_{k2}_npmat.png", dpi=300)
 
     fig, ax = plt.subplots(figsize=(3, 3), dpi=300)
     sc.pl.embedding(
@@ -177,9 +180,9 @@ for k1, k2 in STAGES_MAPPING:
         ax=ax,
     )
     fig.tight_layout()
-    fig.savefig(f"cao2019_npisc_ky21_{k2}_umap.png")
+    fig.savefig(f"{PREFIX}_{GENOME}_npisc_{k2}_umap.png")
 
-    t3.to_csv(f"cao2019_npisc_ky21_{k2}_cos_theta.csv")
+    t3.to_csv(f"{PREFIX}_{GENOME}_npisc_{k2}_cos_theta.csv")
 
     fig, ax = plt.subplots(figsize=(3, 3), dpi=300)
     ax = plot_np(
@@ -205,7 +208,7 @@ for k1, k2 in STAGES_MAPPING:
     fig.tight_layout()
     patch_col = ax.collections[0]
     fig.colorbar(patch_col, ax=ax, shrink=0.5)
-    fig.savefig(f"cao2019_npisc_ky21_{k2}_npmap.png")
+    fig.savefig(f"{PREFIX}_{GENOME}_npisc_{k2}_npmap.png")
 
 # %%
 
@@ -215,7 +218,7 @@ dg = make_digraph(
     use_rep=SCVI_LATENT_KEY,
 )
 
-nx.write_gml(dg, "cao2019_npisc_ky21_cross_stage.gml")
+nx.write_gml(dg, f"{PREFIX}_{GENOME}_npisc_cross_stage.gml")
 
 # %%
 
@@ -224,7 +227,7 @@ d_leidens = {
     for k, v in adatas.items()
 }
 
-dg = nx.read_gml("cao2019_npisc_ky21_cross_stage.gml")
+dg = nx.read_gml(f"{PREFIX}_{GENOME}_npisc_cross_stage.gml")
 
 STATE_START = "midG"
 STATE_END = "latN"
@@ -259,7 +262,7 @@ for (_, k1), (_, k2) in adjacent(STAGES_MAPPING):
         figsize=(6.5, 6.5),
     )
 
-    g.savefig(f"cao2019_npisc_ky21_cross_stage_{k1}_{k2}.png", dpi=300)
+    g.savefig(f"{PREFIX}_{GENOME}_npisc_cross_stage_{k1}_{k2}.png", dpi=300)
 
 # %%
 
@@ -338,7 +341,7 @@ STAGES_SUBCLUSTERS = [
 
 # %%
 
-adatas = {s: sc.read_h5ad(f"cao2019_npisc_ky21_{s}.h5ad") for s in STAGES_SC}
+adatas = {s: sc.read_h5ad(f"{PREFIX}_{GENOME}_npisc_{s}.h5ad") for s in STAGES_SC}
 
 for _, k2, sbc in STAGES_SUBCLUSTERS:
     a_tmp = adatas[k2][adatas[k2].obs["leiden"].isin(sbc)].copy()
@@ -368,12 +371,12 @@ for _, k2, sbc in STAGES_SUBCLUSTERS:
 
     sc.tl.umap(a_tmp)
 
-    a_tmp.write_h5ad(f"cao2019_npisc_ky21_np_{k2}.h5ad")
+    a_tmp.write_h5ad(f"{PREFIX}_{GENOME}_npisc_np_{k2}.h5ad")
 
 # %%
 
 adatas_sbc = {
-    s: sc.read_h5ad(f"cao2019_npisc_ky21_np_{s}.h5ad") for _, s, _ in STAGES_SUBCLUSTERS
+    s: sc.read_h5ad(f"{PREFIX}_{GENOME}_npisc_np_{s}.h5ad") for _, s, _ in STAGES_SUBCLUSTERS
 }
 
 # %%
@@ -390,7 +393,7 @@ for k1, k2, _ in STAGES_SUBCLUSTERS:
         figsize=(6.5, 9),
     )
 
-    g.savefig(f"cao2019_npisc_ky21_np_{k2}_npmat.png", dpi=300)
+    g.savefig(f"{PREFIX}_{GENOME}_npisc_np_{k2}_npmat.png", dpi=300)
 
     fig, ax = plt.subplots(figsize=(3, 3), dpi=300)
     sc.pl.embedding(
@@ -403,9 +406,9 @@ for k1, k2, _ in STAGES_SUBCLUSTERS:
         ax=ax,
     )
     fig.tight_layout()
-    fig.savefig(f"cao2019_npisc_ky21_np_{k2}_umap.png")
+    fig.savefig(f"{PREFIX}_{GENOME}_npisc_np_{k2}_umap.png")
 
-    t3.to_csv(f"cao2019_npisc_ky21_np_{k2}_cos_theta.csv")
+    t3.to_csv(f"{PREFIX}_{GENOME}_npisc_np_{k2}_cos_theta.csv")
 
     fig, ax = plt.subplots(figsize=(3, 3), dpi=300)
     ax = plot_np(
@@ -431,7 +434,7 @@ for k1, k2, _ in STAGES_SUBCLUSTERS:
     fig.tight_layout()
     patch_col = ax.collections[0]
     fig.colorbar(patch_col, ax=ax, shrink=0.5)
-    fig.savefig(f"cao2019_npisc_ky21_np_{k2}_npmap.png")
+    fig.savefig(f"{PREFIX}_{GENOME}_npisc_np_{k2}_npmap.png")
 
 # %%
 
@@ -441,7 +444,7 @@ dg_sbc = make_digraph(
     use_rep=SCVI_LATENT_KEY,
 )
 
-nx.write_gml(dg_sbc, "cao2019_npisc_ky21_np_cross_stage.gml")
+nx.write_gml(dg_sbc, f"{PREFIX}_{GENOME}_npisc_np_cross_stage.gml")
 
 # %%
 
@@ -450,7 +453,7 @@ d_leidens_sbc = {
     for k, v in adatas_sbc.items()
 }
 
-dg_sbc = nx.read_gml("cao2019_npisc_ky21_np_cross_stage.gml")
+dg_sbc = nx.read_gml(f"{PREFIX}_{GENOME}_npisc_np_cross_stage.gml")
 
 STATE_START = "midG"
 STATE_END = "latN"
@@ -497,6 +500,6 @@ for (_, k1, _), (_, k2, _) in adjacent(STAGES_SUBCLUSTERS):
         figsize=(6.5, 6.5),
     )
 
-    g.savefig(f"cao2019_npisc_ky21_np_cross_stage_{k1}_{k2}.png", dpi=300)
+    g.savefig(f"{PREFIX}_{GENOME}_npisc_np_cross_stage_{k1}_{k2}.png", dpi=300)
 
 # %%
