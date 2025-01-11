@@ -15,13 +15,32 @@ scvi.settings.dl_num_workers = 63
 PREFIX = "integrated"
 GENOME = "ky21"
 
-SCAR_LATENT_KEY = "X_scAR"
-SCAR_LAYER = "denoised"
 BATCH_KEY = "sample"
 COUNTS_LAYER = "counts"
 LIBRARY_SIZE = 1e4
 
-adata = sc.read_h5ad(f"{PREFIX}_{GENOME}_denoised.h5ad")
+adata = sc.read_h5ad(f"{PREFIX}_{GENOME}_raw.h5ad")
+
+# annotate the group of mitochondrial genes as 'mt'
+adata.var["mt"] = adata.var_names.str.startswith("KY21.MG0")
+sc.pp.calculate_qc_metrics(
+    adata,
+    qc_vars=["mt"],
+    percent_top=None,
+    log1p=False,
+    inplace=True,
+)
+
+sc.pp.filter_cells(adata, min_genes=100)
+sc.pp.filter_genes(adata, min_cells=3)
+
+adata.layers[COUNTS_LAYER] = adata.X.copy()
+sc.pp.normalize_total(
+    adata,
+    target_sum=LIBRARY_SIZE,
+)
+sc.pp.log1p(adata)
+adata.raw = adata
 
 sc.pp.highly_variable_genes(
     adata,
@@ -33,7 +52,7 @@ sc.pp.highly_variable_genes(
 model_cls = scvi.model.LinearSCVI
 model_cls.setup_anndata(
     adata,
-    layer=SCAR_LAYER,
+    layer=COUNTS_LAYER,
     batch_key=BATCH_KEY,
 )
 
