@@ -26,10 +26,10 @@ from npisc.build_matrix import (
 torch.set_float32_matmul_precision("high")
 scvi.settings.dl_num_workers = 63
 
+# %%
+
 PREFIX = "integrated"
 GENOME = "ky21"
-
-# %%
 
 PATTERN_STAGES = r"(early|mid|late) (gastrula|neurula)"
 PATTERN_CELLS = r"[Aa]\d+\.\d+$"
@@ -76,13 +76,16 @@ d_patterns = {
     for stage, df in dfs.items()
 }
 
-# %%
-
 SCVI_LATENT_KEY = "X_scVI"
 SCVI_BASIS = "scVI_basis"
 SCVI_MDE_KEY = "X_scVI_MDE"
 SCVI_EXPRESSION_KEY = "scVI_normalized"
 SCVI_LOG1P_KEY = "scVI_log1p"
+
+gdfs = {k: gpd.read_file(f"npisc/{file}") for _, file, k in STAGES_IN_SITU}
+
+for stage in gdfs:
+    gdfs[stage]["name"] = gdfs[stage]["name"].str.replace("*", "", regex=False)
 
 # %%
 
@@ -133,14 +136,8 @@ STAGES_SC = [
     "larva",
 ]
 
+adata = sc.read_h5ad(f"{PREFIX}_{GENOME}.h5ad")
 adatas = {s: sc.read_h5ad(f"{PREFIX}_{GENOME}_npisc_{s}.h5ad") for s in STAGES_SC}
-
-# %%
-
-gdfs = {k: gpd.read_file(f"npisc/{file}") for _, file, k in STAGES_IN_SITU}
-
-for stage in gdfs:
-    gdfs[stage]["name"] = gdfs[stage]["name"].str.replace("*", "", regex=False)
 
 # %%
 
@@ -375,8 +372,10 @@ for _, k2, sbc in STAGES_SUBCLUSTERS:
 
 # %%
 
+adatas = {s: sc.read_h5ad(f"{PREFIX}_{GENOME}_npisc_{s}.h5ad") for s in STAGES_SC}
 adatas_sbc = {
-    s: sc.read_h5ad(f"{PREFIX}_{GENOME}_npisc_np_{s}.h5ad") for _, s, _ in STAGES_SUBCLUSTERS
+    s: sc.read_h5ad(f"{PREFIX}_{GENOME}_npisc_np_{s}.h5ad")
+    for _, s, _ in STAGES_SUBCLUSTERS
 }
 
 # %%
@@ -482,7 +481,8 @@ df_sbc_edges = nx.to_pandas_edgelist(dg_sbc)
 
 for (_, k1, _), (_, k2, _) in adjacent(STAGES_SUBCLUSTERS):
     edges = df_sbc_edges[
-        df_sbc_edges["source"].str.contains(k1) & df_sbc_edges["target"].str.contains(k2)
+        df_sbc_edges["source"].str.contains(k1)
+        & df_sbc_edges["target"].str.contains(k2)
     ]
 
     pivot_edges = 1 - edges.pivot(
