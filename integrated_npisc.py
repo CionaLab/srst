@@ -1,6 +1,7 @@
 # %%
 
 import re
+from collections import defaultdict
 
 import pandas as pd
 import scanpy as sc
@@ -206,6 +207,77 @@ for k1, k2 in STAGES_MAPPING:
     patch_col = ax.collections[0]
     fig.colorbar(patch_col, ax=ax, shrink=0.5)
     fig.savefig(f"{PREFIX}_{GENOME}_npisc_{k2}_npmap.png")
+
+# %%
+
+df_ground_truth = pd.read_csv(
+    "npisc/winkley2021_meta.tsv",
+    sep="\t",
+)
+df_ground_truth["Cell"] = df_ground_truth["Cell"].str.replace(
+    "DMSO_MidG_",
+    "",
+    regex=False,
+)
+df_ground_truth = df_ground_truth[
+    df_ground_truth["CellType"].str.startswith(
+        "NP",
+    )
+]
+df_ground_truth = df_ground_truth.set_index("Cell")
+
+df_ground_truth["leiden"] = df_ground_truth.index.map(
+    lambda x: (
+        adatas["midG"].obs.loc[
+            x,
+            "leiden",
+        ]
+        if x in adatas["midG"].obs.index
+        else None
+    )
+)
+
+df_ground_truth = df_ground_truth[~df_ground_truth["CellType"].str.startswith("NP (b)")]
+
+df_ground_truth["leiden"] = df_ground_truth["leiden"].astype("Int64")
+
+
+df_leiden_prediction = (
+    pd.read_csv(
+        f"{PREFIX}_{GENOME}_npisc_midG_cos_theta.csv",
+        index_col=0,
+    )
+    .join(
+        pd.read_csv(
+            "npisc/ground_truth_map.tsv",
+            sep="\t",
+            index_col=0,
+        ),
+        how="inner",
+    )[
+        [
+            "leiden",
+            "cluster",
+        ]
+    ]
+    .reset_index(
+        drop=True,
+    )
+)
+
+d_leiden_prediction = (
+    df_leiden_prediction.groupby("leiden")["cluster"]
+    .apply(set)
+    .to_dict(into=defaultdict(set))
+)
+
+df_ground_truth["validated"] = df_ground_truth.apply(
+    lambda x: x["leiden"] in d_leiden_prediction
+    and x["Cluster"] in d_leiden_prediction[x["leiden"]],
+    axis=1,
+)
+
+print(f"{df_ground_truth["validated"].sum()}/{df_ground_truth["leiden"].count()}")
 
 # %%
 
