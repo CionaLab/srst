@@ -162,7 +162,7 @@ for k1, k2 in STAGES_MAPPING:
         t2,
         xticklabels=1,
         yticklabels=1,
-        figsize=(6.5, 9),
+        figsize=(6.5, 6.5),
     )
 
     g.savefig(f"{PREFIX}_{GENOME}_npisc_{k2}_npmat.png", dpi=300)
@@ -339,26 +339,24 @@ NP_SOURCES = [
     (
         "midG",
         (
-            "11",
-            "14",
-            "7",
-            "9",
+            "13",
+            "8",
+            "10",
         ),
     ),
     (
         "earN",
         (
-            "4",
+            "10",
             "12",
-            "9",
-            "13",
+            "5",
         ),
     ),
 ]
 
 for s, l in NP_SOURCES:
     try:
-        cs.update_internal(d_leidens[f"{s}"], d_leidens[STATE_END])
+        cs.update_internal(d_leidens[s], d_leidens[STATE_END])
         for i in l:
             print(cs.find_paths(f"{s}_{i}"))
     except KeyError:
@@ -373,37 +371,27 @@ STAGES_SUBCLUSTERS = [
         "mid gastrula",
         "midG",
         (
-            "11",
-            "14",
-            "7",
-            "9",
+            "13",
+            "8",
+            "10",
         ),
     ),
     (
         "early neurula",
         "earN",
         (
-            "4",
+            "10",
             "12",
-            "9",
-            "13",
+            "5",
         ),
     ),
     (
         "late neurula",
         "latN",
         (
-            "23",
             "2",
+            "22",
             "29",
-            "3",
-            "20",
-            "9",
-            "11",
-            "27",
-            "18",
-            "6",
-            "30",
         ),
     ),
 ]
@@ -461,7 +449,7 @@ for k1, k2, _ in STAGES_SUBCLUSTERS:
         t2,
         xticklabels=1,
         yticklabels=1,
-        figsize=(6.5, 9),
+        figsize=(6.5, 6.5),
     )
 
     g.savefig(f"{PREFIX}_{GENOME}_npisc_np_{k2}_npmat.png", dpi=300)
@@ -537,10 +525,10 @@ cs_sbc = CrossStage(
 
 # %%
 
-for k, v in d_leidens_sbc.items():
+for (_, k1, _), (_, k2, _) in adjacent(STAGES_SUBCLUSTERS):
     try:
-        cs_sbc.update_internal(d_leidens_sbc[k], d_leidens_sbc[STATE_END])
-        for i in v:
+        cs_sbc.update_internal(d_leidens_sbc[k1], d_leidens_sbc[k2])
+        for i in d_leidens_sbc[k1]:
             print(cs_sbc.find_paths(i))
     except KeyError:
         pass
