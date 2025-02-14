@@ -43,6 +43,13 @@ STAGES_IN_SITU = [
     ("late neurula", "late_neurula.geojson", "latN"),
 ]
 
+SCVI_LATENT_KEY = "X_scVI"
+SCVI_BASIS = "scVI_basis"
+SCVI_MDE_KEY = "X_scVI_MDE"
+SCVI_EXPRESSION_KEY = "scVI_normalized"
+SCVI_LOG1P_KEY = "scVI_log1p"
+
+# %%
 df = pd.read_csv("npisc/pass_02.tsv", sep="\t")
 df_map = pd.read_csv("npisc/kh2012_ky2021_map.tsv", sep="\t")
 df_map["query"] = "KH2012:" + df_map["query"]
@@ -58,35 +65,44 @@ df = df[["Stage", "Gene", "Territory_eq"]].drop_duplicates()
 dfs = dict(tuple(df.groupby("Stage")))
 
 df_counts = {
-    stage: df.groupby("Territory_eq")["Gene"]
+    k2: dfs[k1].groupby("Territory_eq")["Gene"]
     .nunique()
     .reset_index()
     .rename(columns={"Gene": "n"})
-    for stage, df in dfs.items()
+    for k1, _, k2 in STAGES_IN_SITU
 }
 
-d_patterns = {
-    stage: pd.pivot_table(
-        df,
+for k1, _, k2 in STAGES_IN_SITU:
+    pd.pivot_table(
+        dfs[k1],
         values="Gene",
         index="Territory_eq",
         columns="Gene",
         aggfunc="size",
         fill_value=0,
-    ).astype(bool)
-    for stage, df in dfs.items()
-}
+    ).astype(bool).to_csv(
+        f"{PREFIX}_{GENOME}_npisc_{k2}_pattern.csv",
+        index=True,
+    )
 
-SCVI_LATENT_KEY = "X_scVI"
-SCVI_BASIS = "scVI_basis"
-SCVI_MDE_KEY = "X_scVI_MDE"
-SCVI_EXPRESSION_KEY = "scVI_normalized"
-SCVI_LOG1P_KEY = "scVI_log1p"
+# %%
+
+d_patterns = {
+    k: pd.read_csv(
+        f"{PREFIX}_{GENOME}_npisc_{k}_pattern.csv",
+        index_col=0,
+    )
+    for _, _, k in STAGES_IN_SITU
+}
 
 gdfs = {k: gpd.read_file(f"npisc/{file}") for _, file, k in STAGES_IN_SITU}
 
-for stage in gdfs:
-    gdfs[stage]["name"] = gdfs[stage]["name"].str.replace("*", "", regex=False)
+for k in gdfs:
+    gdfs[k]["name"] = gdfs[k]["name"].str.replace(
+        "*",
+        "",
+        regex=False,
+    )
 
 # %%
 
@@ -153,7 +169,7 @@ STAGES_MAPPING = [
 for k1, k2 in STAGES_MAPPING:
     t1, t2, t3 = map_cells(
         adatas[k2],
-        d_patterns[k1],
+        d_patterns[k2],
         basis=SCVI_BASIS,
         use_rep=SCVI_LATENT_KEY,
     )
@@ -442,7 +458,7 @@ adatas_sbc = {
 
 for k1, k2, _ in STAGES_SUBCLUSTERS:
     t1, t2, t3 = map_cells(
-        adatas_sbc[k2], d_patterns[k1], basis=SCVI_BASIS, use_rep=SCVI_LATENT_KEY
+        adatas_sbc[k2], d_patterns[k2], basis=SCVI_BASIS, use_rep=SCVI_LATENT_KEY
     )
 
     g = sns.clustermap(
