@@ -45,7 +45,6 @@ STAGES_IN_SITU = [
 
 SCVI_LATENT_KEY = "X_scVI"
 SCVI_BASIS = "scVI_basis"
-SCVI_MDE_KEY = "X_scVI_MDE"
 SCVI_EXPRESSION_KEY = "scVI_normalized"
 SCVI_LOG1P_KEY = "scVI_log1p"
 
@@ -65,7 +64,8 @@ df = df[["Stage", "Gene", "Territory_eq"]].drop_duplicates()
 dfs = dict(tuple(df.groupby("Stage")))
 
 df_counts = {
-    k2: dfs[k1].groupby("Territory_eq")["Gene"]
+    k2: dfs[k1]
+    .groupby("Territory_eq")["Gene"]
     .nunique()
     .reset_index()
     .rename(columns={"Gene": "n"})
@@ -124,18 +124,16 @@ for key in adatas.keys():
         n_iterations=-1,
     )
 
-    a_tmp.obsm[SCVI_MDE_KEY] = scvi.model.utils.mde(
-        a_tmp.obsm[SCVI_LATENT_KEY],
-        accelerator="cpu",
-    )
-
     sc.pp.pca(
         a_tmp,
         layer=SCVI_EXPRESSION_KEY,
         svd_solver="arpack",
     )
 
-    sc.tl.umap(a_tmp)
+    sc.tl.umap(
+        a_tmp,
+        min_dist=0.3,
+    )
 
     a_tmp.write_h5ad(f"{PREFIX}_{GENOME}_npisc_{key}.h5ad")
 
@@ -184,9 +182,8 @@ for k1, k2 in STAGES_MAPPING:
     g.savefig(f"{PREFIX}_{GENOME}_npisc_{k2}_npmat.png", dpi=300)
 
     fig, ax = plt.subplots(figsize=(3, 3), dpi=300)
-    sc.pl.embedding(
+    sc.pl.umap(
         adatas[k2],
-        basis=SCVI_MDE_KEY,
         color=["leiden"],
         legend_loc="on data",
         legend_fontoutline=2,
@@ -293,7 +290,7 @@ df_ground_truth["validated"] = df_ground_truth.apply(
     axis=1,
 )
 
-print(f"{df_ground_truth["validated"].sum()}/{df_ground_truth["leiden"].count()}")
+print(f"{df_ground_truth['validated'].sum()}/{df_ground_truth['leiden'].count()}")
 
 # %%
 
@@ -355,17 +352,18 @@ NP_SOURCES = [
     (
         "midG",
         (
-            "13",
-            "8",
-            "10",
+            "1",
+            "2",
+            "5",
+            "9",
         ),
     ),
     (
         "earN",
         (
-            "10",
-            "12",
-            "5",
+            "3",
+            "7",
+            "8",
         ),
     ),
 ]
@@ -387,27 +385,28 @@ STAGES_SUBCLUSTERS = [
         "mid gastrula",
         "midG",
         (
-            "13",
-            "8",
-            "10",
+            "1",
+            "2",
+            "5",
+            "9",
         ),
     ),
     (
         "early neurula",
         "earN",
         (
-            "10",
-            "12",
-            "5",
+            "3",
+            "7",
+            "8",
         ),
     ),
     (
         "late neurula",
         "latN",
         (
-            "2",
-            "22",
-            "29",
+            "1",
+            "3",
+            "13",
         ),
     ),
 ]
@@ -431,18 +430,16 @@ for _, k2, sbc in STAGES_SUBCLUSTERS:
         n_iterations=-1,
     )
 
-    a_tmp.obsm[SCVI_MDE_KEY] = scvi.model.utils.mde(
-        a_tmp.obsm[SCVI_LATENT_KEY],
-        accelerator="cpu",
-    )
-
     sc.pp.pca(
         a_tmp,
         layer=SCVI_EXPRESSION_KEY,
         svd_solver="arpack",
     )
 
-    sc.tl.umap(a_tmp)
+    sc.tl.umap(
+        a_tmp,
+        min_dist=0.3,
+    )
 
     a_tmp.write_h5ad(f"{PREFIX}_{GENOME}_npisc_np_{k2}.h5ad")
 
@@ -471,9 +468,8 @@ for k1, k2, _ in STAGES_SUBCLUSTERS:
     g.savefig(f"{PREFIX}_{GENOME}_npisc_np_{k2}_npmat.png", dpi=300)
 
     fig, ax = plt.subplots(figsize=(3, 3), dpi=300)
-    sc.pl.embedding(
+    sc.pl.umap(
         adatas_sbc[k2],
-        basis=SCVI_MDE_KEY,
         color=["leiden"],
         legend_loc="on data",
         legend_fontoutline=2,

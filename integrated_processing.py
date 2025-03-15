@@ -54,7 +54,7 @@ model = scvi.model.LinearSCVI(
     gene_likelihood="nb",
     n_hidden=256,
     n_latent=40,
-    n_layers=3,
+    n_layers=1,
     dispersion="gene-batch",
 )
 
@@ -64,7 +64,13 @@ model.train(
     early_stopping=True,
     early_stopping_patience=20,
     early_stopping_monitor="elbo_validation",
-    plan_kwargs={"lr": 0.005053594238430305},
+    plan_kwargs={"lr": 0.006094652600642441},
+)
+
+model.save(
+    f"{PREFIX}_{GENOME}_scvi",
+    overwrite=True,
+    save_anndata=True,
 )
 
 SCVI_BASIS = "scVI_basis"
@@ -94,11 +100,6 @@ sc.tl.leiden(
     n_iterations=-1,
 )
 
-SCVI_MDE_KEY = "X_scVI_MDE"
-adata.obsm[SCVI_MDE_KEY] = scvi.model.utils.mde(
-    adata.obsm[SCVI_LATENT_KEY], accelerator="cpu"
-)
-
 sc.pp.pca(
     adata,
     layer=SCVI_EXPRESSION_KEY,
@@ -108,9 +109,3 @@ sc.pp.pca(
 sc.tl.umap(adata)
 
 adata.write_h5ad(f"{PREFIX}_{GENOME}.h5ad")
-
-model.save(
-    f"{PREFIX}_{GENOME}_scvi",
-    overwrite=True,
-    save_anndata=True,
-)
