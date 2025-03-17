@@ -53,12 +53,16 @@ adatas = [
 ]
 
 
-for i, (a, (_, j, k, _)) in enumerate(zip(adatas, samples)):
-    a.obs["sample"] = f"{i + 1}"
+for a, (_, j, k, _) in zip(adatas, samples):
     a.obs["stage"] = j
     a.obs["source"] = k
 
-adata = sc.concat(adatas, fill_value=0)
+adata = sc.concat(
+    adatas,
+    join="outer",
+    fill_value=0,
+    label="sample",
+)
 adata.obs_names_make_unique()
 gene_names = pd.read_csv("npisc/ky2021_gene_names.tsv", sep="\t", index_col=0)
 adata.var["gene_name"] = adata.var.index.map(gene_names["gene_name"])

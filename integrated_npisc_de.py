@@ -8,6 +8,7 @@ import torch
 
 torch.set_float32_matmul_precision("high")
 scvi.settings.dl_num_workers = 63
+scvi.settings.batch_size = 16384
 
 PREFIX = "integrated"
 GENOME = "ky21"
@@ -28,7 +29,7 @@ d_patterns = {
 
 adata = sc.read_h5ad(f"{PREFIX}_{GENOME}.h5ad")
 
-model = scvi.model.LinearSCVI.load(f"{PREFIX}_{GENOME}_scvi")
+model = scvi.model.LinearSCVI.load(f"{PREFIX}_{GENOME}_linear_scVI")
 
 adatas = {s: sc.read_h5ad(f"{PREFIX}_{GENOME}_npisc_{s}.h5ad") for s in STAGES_SC}
 
