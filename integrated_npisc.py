@@ -392,31 +392,22 @@ for (_, k1), (_, k2) in adjacent(STAGES_MAPPING):
 
 # %%
 
-NP_SOURCES = [
-    (
-        "midG",
-        (
-            "1",
-            "2",
-            "5",
-            "9",
-        ),
-    ),
-    (
-        "earN",
-        (
-            "3",
-            "7",
-            "8",
-        ),
-    ),
-]
+l_cross_stage = (
+    f"midG_{k}"
+    for k in (
+        "4",
+        "6",
+        "11",
+    )
+)
 
-for s, l in NP_SOURCES:
+for (_, k1), (_, k2) in adjacent(STAGES_MAPPING):
     try:
-        cs.update_internal(d_leidens[s], d_leidens[STATE_END])
-        for i in l:
-            print(cs.find_paths(f"{s}_{i}"))
+        cs.update_internal(d_leidens[k1], d_leidens[k2])
+        paths_cross_stage = [cs.find_paths(i) for i in l_cross_stage]
+        l_cross_stage = (i for _, i in paths_cross_stage)
+        for i in paths_cross_stage:
+            print(i)
     except KeyError:
         pass
     except nx.NetworkXNoPath:
@@ -429,28 +420,27 @@ STAGES_SUBCLUSTERS = [
         "mid gastrula",
         "midG",
         (
-            "1",
-            "2",
-            "5",
-            "9",
+            "4",
+            "6",
+            "11",
         ),
     ),
     (
         "early neurula",
         "earN",
         (
-            "3",
-            "7",
             "8",
+            "7",
+            "18",
         ),
     ),
     (
         "late neurula",
         "latN",
         (
-            "1",
-            "3",
-            "13",
+            "2",
+            "24",
+            "25",
         ),
     ),
 ]
