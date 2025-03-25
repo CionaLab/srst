@@ -1,8 +1,8 @@
 # %%
 
 import re
-from collections import defaultdict
 
+import numpy as np
 import pandas as pd
 import scanpy as sc
 import networkx as nx
@@ -43,6 +43,7 @@ STAGES_IN_SITU = [
     ("late neurula", "late_neurula.geojson", "latN"),
 ]
 
+COUNTS_LAYER = "counts"
 SCVI_LATENT_KEY = "X_scVI"
 SCVI_BASIS = "scVI_basis"
 SCVI_EXPRESSION_KEY = "scVI_normalized"
@@ -223,6 +224,72 @@ for k1, k2 in STAGES_MAPPING:
 
 # %%
 
+library_size = adatas["midG"].layers[COUNTS_LAYER].sum(1)
+adatas["midG"].obs["size_factor"] = library_size / np.mean(library_size)
+a_tmp = adatas["midG"][:, d_patterns["midG"].T.index].copy()
+
+# %%
+scvi.external.CellAssign.setup_anndata(
+    a_tmp,
+    size_factor_key="size_factor",
+)
+
+# %%
+a_model = scvi.external.CellAssign(a_tmp, d_patterns["midG"].T)
+
+# %%
+a_model.train(
+    check_val_every_n_epoch=1,
+    max_epochs=800,
+    early_stopping=True,
+    early_stopping_patience=20,
+    early_stopping_monitor="elbo_validation",
+)
+
+# %%
+a_model.save(
+    f"{PREFIX}_{GENOME}_cellassign_midG",
+    overwrite=True,
+    save_anndata=True,
+)
+
+# %%
+a_model = scvi.external.CellAssign.load(
+    f"{PREFIX}_{GENOME}_cellassign_midG",
+)
+
+a_tmp = a_model.adata
+
+# %%
+pred_cellassign = a_model.predict()
+
+pred_npisc, _, _ = map_cells(
+    a_tmp,
+    d_patterns["midG"],
+    basis=SCVI_BASIS,
+    use_rep=SCVI_LATENT_KEY,
+)
+
+a_tmp.obs["pred_cellassign"] = pred_cellassign.idxmax(axis=1).values
+a_tmp.obs["pred_npisc"] = pred_npisc.idxmax(axis=0).values
+
+# %%
+
+d_ground_truth = pd.read_csv(
+    "npisc/ground_truth_map.tsv",
+    sep="\t",
+    index_col=0,
+).to_dict()["cluster"]
+
+a_tmp.obs["pred_cellassign"] = (
+    a_tmp.obs["pred_cellassign"]
+    .map(d_ground_truth)
+    .fillna(a_tmp.obs["pred_cellassign"])
+)
+a_tmp.obs["pred_npisc"] = (
+    a_tmp.obs["pred_npisc"].map(d_ground_truth).fillna(a_tmp.obs["pred_npisc"])
+)
+
 df_ground_truth = pd.read_csv(
     "npisc/winkley2021_meta.tsv",
     sep="\t",
@@ -239,58 +306,35 @@ df_ground_truth = df_ground_truth[
 ]
 df_ground_truth = df_ground_truth.set_index("Cell")
 
-df_ground_truth["leiden"] = df_ground_truth.index.map(
-    lambda x: (
-        adatas["midG"].obs.loc[
-            x,
-            "leiden",
-        ]
-        if x in adatas["midG"].obs.index
-        else None
+df_ground_truth = df_ground_truth[
+    ~df_ground_truth["CellType"].str.startswith(
+        "NP (b)",
     )
+]
+
+df_ground_truth = df_ground_truth.merge(
+    a_tmp[a_tmp.obs["source"] == "winkley2021", :].obs,
+    how="left",
+    left_index=True,
+    right_index=True,
+)[["Cluster", "pred_cellassign", "pred_npisc"]]
+
+
+df_ground_truth["agree_cellassign"] = (
+    df_ground_truth["Cluster"] == df_ground_truth["pred_cellassign"]
+)
+df_ground_truth["agree_npisc"] = (
+    df_ground_truth["Cluster"] == df_ground_truth["pred_npisc"]
 )
 
-df_ground_truth = df_ground_truth[~df_ground_truth["CellType"].str.startswith("NP (b)")]
+df_ground_truth.dropna(inplace=True)
 
-df_ground_truth["leiden"] = df_ground_truth["leiden"].astype("Int64")
-
-
-df_leiden_prediction = (
-    pd.read_csv(
-        f"{PREFIX}_{GENOME}_npisc_midG_cos_theta.csv",
-        index_col=0,
-    )
-    .join(
-        pd.read_csv(
-            "npisc/ground_truth_map.tsv",
-            sep="\t",
-            index_col=0,
-        ),
-        how="inner",
-    )[
-        [
-            "leiden",
-            "cluster",
-        ]
-    ]
-    .reset_index(
-        drop=True,
-    )
+print(
+    f"CellAssign: {df_ground_truth['agree_cellassign'].sum()}/{df_ground_truth['Cluster'].count()}"
 )
-
-d_leiden_prediction = (
-    df_leiden_prediction.groupby("leiden")["cluster"]
-    .apply(set)
-    .to_dict(into=defaultdict(set))
+print(
+    f"npisc: {df_ground_truth['agree_npisc'].sum()}/{df_ground_truth['Cluster'].count()}"
 )
-
-df_ground_truth["validated"] = df_ground_truth.apply(
-    lambda x: x["leiden"] in d_leiden_prediction
-    and x["Cluster"] in d_leiden_prediction[x["leiden"]],
-    axis=1,
-)
-
-print(f"{df_ground_truth['validated'].sum()}/{df_ground_truth['leiden'].count()}")
 
 # %%
 
