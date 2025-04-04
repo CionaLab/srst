@@ -8,7 +8,6 @@ import torch
 
 torch.set_float32_matmul_precision("high")
 scvi.settings.dl_num_workers = 63
-scvi.settings.batch_size = 16384
 
 PREFIX = "integrated"
 GENOME = "ky21"
@@ -79,7 +78,6 @@ df_ky_sp = df_ky_sp.loc[df_ky_sp.groupby("qseqid")["evalue"].idxmin()]
 ).to_csv("ky2021_swissprot_map.csv", index=False)
 
 df_ky_sp = pd.read_csv("ky2021_swissprot_map.csv")
-NUM_TOP = 50
 
 for k in STAGES_SC:
 

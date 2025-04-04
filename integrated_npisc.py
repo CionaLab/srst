@@ -226,7 +226,9 @@ for k1, k2 in STAGES_MAPPING:
 
 library_size = adatas["midG"].layers[COUNTS_LAYER].sum(1)
 adatas["midG"].obs["size_factor"] = library_size / np.mean(library_size)
-a_tmp = adatas["midG"][:, d_patterns["midG"].T.index].copy()
+a_tmp = adatas["midG"][
+    :, adatas["midG"].var_names.intersection(d_patterns["midG"].T.index)
+].copy()
 
 # %%
 scvi.external.CellAssign.setup_anndata(
@@ -395,9 +397,10 @@ for (_, k1), (_, k2) in adjacent(STAGES_MAPPING):
 l_cross_stage = (
     f"midG_{k}"
     for k in (
-        "4",
         "6",
+        "8",
         "11",
+        "17",
     )
 )
 
@@ -420,18 +423,20 @@ STAGES_SUBCLUSTERS = [
         "mid gastrula",
         "midG",
         (
-            "4",
             "6",
+            "8",
             "11",
+            "17",
         ),
     ),
     (
         "early neurula",
         "earN",
         (
-            "8",
-            "7",
-            "18",
+            "10",
+            "5",
+            "13",
+            "3",
         ),
     ),
     (
@@ -439,8 +444,9 @@ STAGES_SUBCLUSTERS = [
         "latN",
         (
             "2",
-            "24",
-            "25",
+            "29",
+            "16",
+            "1",
         ),
     ),
 ]
