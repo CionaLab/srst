@@ -223,6 +223,7 @@ for k1, k2 in STAGES_MAPPING:
     patch_col = ax.collections[0]
     fig.colorbar(patch_col, ax=ax, shrink=0.5)
     fig.savefig(f"{PREFIX}_{GENOME}_npisc_{k2}_npmap.png")
+    t2.to_csv(f"{PREFIX}_{GENOME}_npisc_{k2}_npmap.csv")
 
 # %%
 a_tmp = adatas["midG"][
@@ -543,7 +544,7 @@ for k1, k2, _ in STAGES_SUBCLUSTERS:
     patch_col = ax.collections[0]
     fig.colorbar(patch_col, ax=ax, shrink=0.5)
     fig.savefig(f"{PREFIX}_{GENOME}_npisc_np_{k2}_npmap.png")
-
+    t2.to_csv(f"{PREFIX}_{GENOME}_npisc_np_{k2}_npmap.csv")
 # %%
 
 dg_sbc = make_digraph(
