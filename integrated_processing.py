@@ -17,10 +17,12 @@ LIBRARY_SIZE = 1e4
 adata = sc.read_h5ad(f"{PREFIX}_{GENOME}_raw.h5ad")
 
 # annotate the group of mitochondrial genes as 'mt'
-adata.var["mt"] = adata.var_names.str.startswith("KY21.MG0")
+QC_MITO = "mt"
+
+adata.var[QC_MITO] = adata.var_names.str.startswith("KY21.MG0")
 sc.pp.calculate_qc_metrics(
     adata,
-    qc_vars=["mt"],
+    qc_vars=[QC_MITO],
     percent_top=None,
     log1p=False,
     inplace=True,
