@@ -11,6 +11,7 @@ from scvi import autotune
 
 torch.set_float32_matmul_precision("high")
 scvi.settings.dl_num_workers = 63
+scvi.settings.seed = 0
 
 PREFIX = "integrated"
 GENOME = "ky21"

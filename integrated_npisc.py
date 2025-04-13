@@ -25,6 +25,7 @@ from npisc.build_matrix import (
 
 torch.set_float32_matmul_precision("high")
 scvi.settings.dl_num_workers = 63
+scvi.settings.seed = 0
 
 # %%
 
@@ -395,10 +396,10 @@ for (_, k1), (_, k2) in adjacent(STAGES_MAPPING):
 l_cross_stage = (
     f"midG_{k}"
     for k in (
-        "6",
+        "3",
         "8",
-        "11",
-        "17",
+        "6",
+        "9",
     )
 )
 
@@ -421,30 +422,28 @@ STAGES_SUBCLUSTERS = [
         "mid gastrula",
         "midG",
         (
-            "6",
+            "3",
             "8",
-            "11",
-            "17",
+            "6",
+            "9",
         ),
     ),
     (
         "early neurula",
         "earN",
         (
-            "10",
-            "5",
-            "13",
+            "1",
             "3",
+            "8",
         ),
     ),
     (
         "late neurula",
         "latN",
         (
+            "21",
+            "26",
             "2",
-            "29",
-            "16",
-            "1",
         ),
     ),
 ]
