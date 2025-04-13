@@ -111,4 +111,8 @@ sc.pp.pca(
 
 sc.tl.umap(adata)
 
+SIZE_FACTOR = "size_factor"
+library_size = adata.layers[COUNTS_LAYER].sum(1)
+adata.obs[SIZE_FACTOR] = library_size / np.mean(library_size)
+
 adata.write_h5ad(f"{PREFIX}_{GENOME}.h5ad")

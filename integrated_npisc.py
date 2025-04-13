@@ -2,7 +2,6 @@
 
 import re
 
-import numpy as np
 import pandas as pd
 import scanpy as sc
 import networkx as nx
@@ -44,6 +43,8 @@ STAGES_IN_SITU = [
 ]
 
 COUNTS_LAYER = "counts"
+SIZE_FACTOR = "size_factor"
+BATCH_KEY = "sample"
 SCVI_LATENT_KEY = "X_scVI"
 SCVI_BASIS = "scVI_basis"
 SCVI_EXPRESSION_KEY = "scVI_normalized"
@@ -223,9 +224,6 @@ for k1, k2 in STAGES_MAPPING:
     fig.savefig(f"{PREFIX}_{GENOME}_npisc_{k2}_npmap.png")
 
 # %%
-
-library_size = adatas["midG"].layers[COUNTS_LAYER].sum(1)
-adatas["midG"].obs["size_factor"] = library_size / np.mean(library_size)
 a_tmp = adatas["midG"][
     :, adatas["midG"].var_names.intersection(d_patterns["midG"].T.index)
 ].copy()
@@ -233,7 +231,8 @@ a_tmp = adatas["midG"][
 # %%
 scvi.external.CellAssign.setup_anndata(
     a_tmp,
-    size_factor_key="size_factor",
+    size_factor_key=SIZE_FACTOR,
+    batch_key=BATCH_KEY,
 )
 
 # %%
@@ -248,7 +247,6 @@ a_model.train(
     early_stopping_monitor="elbo_validation",
 )
 
-# %%
 a_model.save(
     f"{PREFIX}_{GENOME}_cellassign_midG",
     overwrite=True,
