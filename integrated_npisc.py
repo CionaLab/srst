@@ -464,6 +464,7 @@ for _, k2, sbc in STAGES_SUBCLUSTERS:
 
     sc.tl.leiden(
         a_tmp,
+        resolution=2,
         flavor="igraph",
         n_iterations=-1,
     )
@@ -493,7 +494,10 @@ adatas_sbc = {
 
 for k1, k2, _ in STAGES_SUBCLUSTERS:
     t1, t2, t3 = map_cells(
-        adatas_sbc[k2], d_patterns[k2], basis=SCVI_BASIS, use_rep=SCVI_LATENT_KEY
+        adatas_sbc[k2],
+        d_patterns[k2],
+        basis=SCVI_BASIS,
+        use_rep=SCVI_LATENT_KEY,
     )
 
     g = sns.clustermap(
