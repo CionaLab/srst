@@ -1,5 +1,3 @@
-import re
-
 import pandas as pd
 import scanpy as sc
 import numpy as np
@@ -37,48 +35,7 @@ adatas_sbc = {
     s: sc.read_h5ad(f"{PREFIX}_{GENOME}_npisc_np_{s}.h5ad") for s in STAGES_SC
 }
 
-# Generate the BLAST map from the following:
-# \time blastp -db swissprot -taxids 9606 -query ky2021p.fasta -parse_deflines \
-# -outfmt "7 qacc sacc pident length mismatch gapopen qstart qend sstart send evalue bitscore qcovs" \
-# -out ky2021_swissprot.txt -num_threads 64 -mt_mode 1
-
-df_ky_sp = pd.read_csv(
-    "ky2021_swissprot.txt",
-    sep="\t",
-    names=[
-        "qseqid",
-        "sseqid",
-        "pident",
-        "length",
-        "mismatch",
-        "gapopen",
-        "qstart",
-        "qend",
-        "sstart",
-        "send",
-        "evalue",
-        "bitscore",
-        "coverage",
-    ],
-    comment="#",
-)
-df_ky_sp["qseqid"] = df_ky_sp["qseqid"].apply(lambda x: re.sub(r"\.v.+", "", x))
-
-df_ky_sp = df_ky_sp.loc[df_ky_sp.groupby("qseqid")["evalue"].idxmin()]
-
-(
-    pd.merge(
-        df_ky_sp,
-        pd.read_csv("uniprot_data.csv"),
-        left_on="sseqid",
-        right_on="uniprot",
-    )
-    .groupby("qseqid")
-    .apply(lambda x: x.nsmallest(1, "evalue"))
-    .reset_index(drop=True)[["qseqid", "fullname"]]
-).to_csv("ky2021_swissprot_map.csv", index=False)
-
-df_ky_sp = pd.read_csv("ky2021_swissprot_map.csv")
+df_ky_sp = pd.read_csv("npisc/ky2021_swissprot_map.csv")
 
 for k in STAGES_SC:
 
@@ -97,14 +54,14 @@ for k in STAGES_SC:
     ).merge(
         df_ky_sp,
         left_index=True,
-        right_on="qseqid",
+        right_on="KY2021",
         how="left",
     )
-    de_change["has_in_situ"] = de_change["qseqid"].apply(
+    de_change["has_in_situ"] = de_change["KY2021"].apply(
         lambda x: x in d_patterns[k].columns
     )
-    de_change["is_tf"] = de_change["qseqid"].apply(
-        lambda x: x in df_ky_sp["qseqid"].values
+    de_change["is_tf"] = de_change["KY2021"].apply(
+        lambda x: x in df_ky_sp["KY2021"].values
     )
     de_change.to_csv(
         f"{PREFIX}_{GENOME}_npisc_{k}_de.csv",
@@ -128,14 +85,14 @@ for k in STAGES_SC:
     ).merge(
         df_ky_sp,
         left_index=True,
-        right_on="qseqid",
+        right_on="KY2021",
         how="left",
     )
-    de_change["has_in_situ"] = de_change["qseqid"].apply(
+    de_change["has_in_situ"] = de_change["KY2021"].apply(
         lambda x: x in d_patterns[k].columns
     )
-    de_change["is_tf"] = de_change["qseqid"].apply(
-        lambda x: x in df_ky_sp["qseqid"].values
+    de_change["is_tf"] = de_change["KY2021"].apply(
+        lambda x: x in df_ky_sp["KY2021"].values
     )
     de_change.to_csv(
         f"{PREFIX}_{GENOME}_npisc_np_{k}_de.csv",
