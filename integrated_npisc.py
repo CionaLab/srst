@@ -54,33 +54,33 @@ SCVI_LOG1P_KEY = "scVI_log1p"
 # %%
 df = pd.read_csv("npisc/pass_02.tsv", sep="\t")
 df_map = pd.read_csv("npisc/kh2012_ky2021_map.tsv", sep="\t")
-df_map["query"] = "KH2012:" + df_map["query"]
+df_map["KH2012"] = "KH2012:" + df_map["KH2012"]
 df["Gene"] = df["Gene"].apply(lambda x: x.split(" ")[0])
-df = pd.merge(df, df_map, how="left", left_on="Gene", right_on="query")
-df = df.drop(columns=["Gene", "query"])
+df = pd.merge(df, df_map, how="left", left_on="Gene", right_on="KH2012")
+df = df.drop(columns=["Gene", "KH2012"])
 df = df.rename(columns={"subject": "Gene"})
 
 df["Stage"] = df["Stage"].apply(lambda x: (" ".join(re.findall(PATTERN_STAGES, x)[0])))
 df = df[df["Territory_eq"].str.contains(PATTERN_CELLS)]
-df = df[["Stage", "Gene", "Territory_eq"]].drop_duplicates()
+df = df[["Stage", "KY2021", "Territory_eq"]].drop_duplicates()
 
 dfs = dict(tuple(df.groupby("Stage")))
 
 df_counts = {
     k2: dfs[k1]
-    .groupby("Territory_eq")["Gene"]
+    .groupby("Territory_eq")["KY2021"]
     .nunique()
     .reset_index()
-    .rename(columns={"Gene": "n"})
+    .rename(columns={"KY2021": "n"})
     for k1, _, k2 in STAGES_IN_SITU
 }
 
 for k1, _, k2 in STAGES_IN_SITU:
     pd.pivot_table(
         dfs[k1],
-        values="Gene",
+        values="KY2021",
         index="Territory_eq",
-        columns="Gene",
+        columns="KY2021",
         aggfunc="size",
         fill_value=0,
     ).astype(bool).to_csv(
