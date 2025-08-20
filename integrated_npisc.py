@@ -397,10 +397,11 @@ for (_, k1), (_, k2) in adjacent(STAGES_MAPPING):
 l_cross_stage = (
     f"midG_{k}"
     for k in (
-        "3",
         "8",
-        "6",
-        "9",
+        "10",
+        "12",
+        "16",
+        "21",
     )
 )
 
@@ -423,28 +424,29 @@ STAGES_SUBCLUSTERS = [
         "mid gastrula",
         "midG",
         (
-            "3",
             "8",
-            "6",
-            "9",
+            "10",
+            "12",
+            "16",
+            "21",
         ),
     ),
     (
         "early neurula",
         "earN",
         (
-            "1",
-            "3",
-            "8",
+            "10",
+            "5",
+            "18",
         ),
     ),
     (
         "late neurula",
         "latN",
         (
+            "3",
+            "25",
             "21",
-            "26",
-            "2",
         ),
     ),
 ]

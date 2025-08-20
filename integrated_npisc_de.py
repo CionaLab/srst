@@ -47,7 +47,7 @@ for k in STAGES_SC:
         batch_correction=True,
     )
 
-    de_change["log10_pscore"] = np.log10(de_change["proba_not_de"])
+    de_change["log10_pscore"] = np.log10(de_change["proba_m2"])
     de_change = de_change.join(
         adata.var,
         how="inner",
@@ -59,9 +59,6 @@ for k in STAGES_SC:
     )
     de_change["has_in_situ"] = de_change["KY2021"].apply(
         lambda x: x in d_patterns[k].columns
-    )
-    de_change["is_tf"] = de_change["KY2021"].apply(
-        lambda x: x in df_ky_sp["KY2021"].values
     )
     de_change.to_csv(
         f"{PREFIX}_{GENOME}_npisc_{k}_de.csv",
@@ -78,7 +75,7 @@ for k in STAGES_SC:
         batch_correction=True,
     )
 
-    de_change["log10_pscore"] = np.log10(de_change["proba_not_de"])
+    de_change["log10_pscore"] = np.log10(de_change["proba_m2"])
     de_change = de_change.join(
         adata.var,
         how="inner",
@@ -90,9 +87,6 @@ for k in STAGES_SC:
     )
     de_change["has_in_situ"] = de_change["KY2021"].apply(
         lambda x: x in d_patterns[k].columns
-    )
-    de_change["is_tf"] = de_change["KY2021"].apply(
-        lambda x: x in df_ky_sp["KY2021"].values
     )
     de_change.to_csv(
         f"{PREFIX}_{GENOME}_npisc_np_{k}_de.csv",
