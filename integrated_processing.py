@@ -16,6 +16,8 @@ LIBRARY_SIZE = 1e4
 
 adata = sc.read_h5ad(f"{PREFIX}_{GENOME}_raw.h5ad")
 
+adata = adata[adata.obs["singlet"] > 0.5].copy()
+
 # annotate the group of mitochondrial genes as 'mt'
 QC_MITO = "mt"
 
@@ -46,52 +48,92 @@ sc.pp.highly_variable_genes(
     layer=COUNTS_LAYER,
     subset=True,
     batch_key=BATCH_KEY,
+    span=1.0,
 )
 
-scvi.model.LinearSCVI.setup_anndata(
-    adata,
-    layer=COUNTS_LAYER,
-    batch_key=BATCH_KEY,
-)
+model_configs = [
+    (
+        # validation loss 3297.597412109375
+        scvi.model.LinearSCVI,
+        "nb",
+        256,
+        40,
+        3,
+        "gene-batch",
+        0.008471190328636252,
+    ),
+    (
+        # validation loss 3227.56982421875
+        scvi.model.SCVI,
+        "nb",
+        256,
+        40,
+        2,
+        "gene-batch",
+        0.009379014975295608,
+    ),
+]
 
-# validation loss 3222.76611328125
-model = scvi.model.LinearSCVI(
-    adata,
-    gene_likelihood="nb",
-    n_hidden=256,
-    n_latent=40,
-    n_layers=2,
-    dispersion="gene-batch",
-)
+for (
+    model_class,
+    gene_likelihood,
+    n_hidden,
+    n_latent,
+    n_layers,
+    dispersion,
+    lr,
+) in model_configs:
+    model_class.setup_anndata(
+        adata,
+        layer=COUNTS_LAYER,
+        batch_key=BATCH_KEY,
+    )
 
-model.train(
-    check_val_every_n_epoch=1,
-    max_epochs=800,
-    early_stopping=True,
-    early_stopping_patience=20,
-    early_stopping_monitor="elbo_validation",
-    plan_kwargs={"lr": 0.009868659319507422},
-)
+    model = model_class(
+        adata,
+        gene_likelihood=gene_likelihood,
+        n_hidden=n_hidden,
+        n_latent=n_latent,
+        n_layers=n_layers,
+        dispersion=dispersion,
+    )
 
-model.save(
-    f"{PREFIX}_{GENOME}_linear_scVI",
-    overwrite=True,
-    save_anndata=True,
-)
+    model.train(
+        check_val_every_n_epoch=1,
+        max_epochs=800,
+        early_stopping=True,
+        early_stopping_patience=20,
+        early_stopping_monitor="elbo_validation",
+        plan_kwargs={"lr": lr},
+    )
 
-SCVI_BASIS = "scVI_basis"
+    model.save(
+        f"{PREFIX}_{GENOME}_{model.__class__.__name__}",
+        overwrite=True,
+        save_anndata=True,
+    )
 
-adata.varm[SCVI_BASIS] = model.get_loadings()
+models = {
+    model.__name__: model.load(f"{PREFIX}_{GENOME}_{model.__name__}", adata=adata)
+    for model, *_ in model_configs
+}
 
-SCVI_LATENT_KEY = "X_scVI"
-adata.obsm[SCVI_LATENT_KEY] = model.get_latent_representation()
+LINEAR_SCVI_BASIS = "LinearSCVI_basis"
 
-SCVI_EXPRESSION_KEY = "scVI_normalized"
-adata.layers[SCVI_EXPRESSION_KEY] = model.get_normalized_expression(
+adata.varm[LINEAR_SCVI_BASIS] = models["LinearSCVI"].get_loadings()
+
+LINEAR_SCVI_LATENT_KEY = "X_LinearSCVI"
+adata.obsm[LINEAR_SCVI_LATENT_KEY] = models["LinearSCVI"].get_latent_representation()
+
+SCVI_LATENT_KEY = "X_SCVI"
+adata.obsm[SCVI_LATENT_KEY] = models["SCVI"].get_latent_representation()
+
+SCVI_EXPRESSION_KEY = "SCVI_normalized"
+adata.layers[SCVI_EXPRESSION_KEY] = models["SCVI"].get_normalized_expression(
     library_size=LIBRARY_SIZE,
 )
 
-SCVI_LOG1P_KEY = "scVI_log1p"
+SCVI_LOG1P_KEY = "SCVI_log1p"
 adata.layers[SCVI_LOG1P_KEY] = np.log1p(
     adata.layers[SCVI_EXPRESSION_KEY],
 )

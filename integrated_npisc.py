@@ -46,9 +46,10 @@ STAGES_IN_SITU = [
 COUNTS_LAYER = "counts"
 SIZE_FACTOR = "size_factor"
 BATCH_KEY = "sample"
-SCVI_LATENT_KEY = "X_scVI"
-SCVI_BASIS = "scVI_basis"
-SCVI_EXPRESSION_KEY = "scVI_normalized"
+LINEAR_SCVI_BASIS = "LinearSCVI_basis"
+LINEAR_SCVI_LATENT_KEY = "X_LinearSCVI"
+SCVI_LATENT_KEY = "X_SCVI"
+SCVI_EXPRESSION_KEY = "SCVI_normalized"
 SCVI_LOG1P_KEY = "scVI_log1p"
 
 # %%
@@ -171,8 +172,8 @@ for k1, k2 in STAGES_MAPPING:
     t1, t2, t3 = map_cells(
         adatas[k2],
         d_patterns[k2],
-        basis=SCVI_BASIS,
-        use_rep=SCVI_LATENT_KEY,
+        basis=LINEAR_SCVI_BASIS,
+        use_rep=LINEAR_SCVI_LATENT_KEY,
     )
 
     g = sns.clustermap(
@@ -268,8 +269,8 @@ pred_cellassign = a_model.predict()
 pred_npisc, _, _ = map_cells(
     a_tmp,
     d_patterns["midG"],
-    basis=SCVI_BASIS,
-    use_rep=SCVI_LATENT_KEY,
+    basis=LINEAR_SCVI_BASIS,
+    use_rep=LINEAR_SCVI_LATENT_KEY,
 )
 
 a_tmp.obs["pred_cellassign"] = pred_cellassign.idxmax(axis=1).values
@@ -341,9 +342,9 @@ print(
 # %%
 
 dg = make_digraph(
-    adatas,
-    STAGES_SC,
-    use_rep=SCVI_LATENT_KEY,
+    {k: adatas[k] for k in ["midG", "earN", "latN"]},
+    ["midG", "earN", "latN"],
+    use_rep=LINEAR_SCVI_LATENT_KEY,
 )
 
 nx.write_gml(dg, f"{PREFIX}_{GENOME}_npisc_cross_stage.gml")
@@ -397,10 +398,9 @@ for (_, k1), (_, k2) in adjacent(STAGES_MAPPING):
 l_cross_stage = (
     f"midG_{k}"
     for k in (
-        "3",
-        "8",
-        "6",
-        "9",
+        "1",
+        "7",
+        "11",
     )
 )
 
@@ -423,28 +423,27 @@ STAGES_SUBCLUSTERS = [
         "mid gastrula",
         "midG",
         (
-            "3",
-            "8",
-            "6",
-            "9",
+            "1",
+            "7",
+            "11",
         ),
     ),
     (
         "early neurula",
         "earN",
         (
-            "1",
             "3",
-            "8",
+            "10",
+            "14",
         ),
     ),
     (
         "late neurula",
         "latN",
         (
-            "21",
-            "26",
-            "2",
+            "1",
+            "28",
+            "24",
         ),
     ),
 ]
@@ -496,8 +495,8 @@ for k1, k2, _ in STAGES_SUBCLUSTERS:
     t1, t2, t3 = map_cells(
         adatas_sbc[k2],
         d_patterns[k2],
-        basis=SCVI_BASIS,
-        use_rep=SCVI_LATENT_KEY,
+        basis=LINEAR_SCVI_BASIS,
+        use_rep=LINEAR_SCVI_LATENT_KEY,
     )
 
     g = sns.clustermap(
@@ -554,7 +553,7 @@ for k1, k2, _ in STAGES_SUBCLUSTERS:
 dg_sbc = make_digraph(
     adatas_sbc,
     [k for _, k, _ in STAGES_SUBCLUSTERS],
-    use_rep=SCVI_LATENT_KEY,
+    use_rep=LINEAR_SCVI_LATENT_KEY,
 )
 
 nx.write_gml(dg_sbc, f"{PREFIX}_{GENOME}_npisc_np_cross_stage.gml")

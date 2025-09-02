@@ -1,6 +1,3 @@
-# Install dependencies for Ray from PyPI
-# pip install -U "ray[data,train,tune,serve,rllib,default]" "hyperopt"
-
 import scanpy as sc
 import scvi
 import torch
@@ -22,6 +19,7 @@ LIBRARY_SIZE = 1e4
 
 adata = sc.read_h5ad(f"{PREFIX}_{GENOME}_raw.h5ad")
 
+adata = adata[adata.obs["singlet"] > 0.5].copy()
 # annotate the group of mitochondrial genes as 'mt'
 QC_MITO = "mt"
 
@@ -52,32 +50,14 @@ sc.pp.highly_variable_genes(
     layer=COUNTS_LAYER,
     subset=True,
     batch_key=BATCH_KEY,
+    span=1.0,
 )
 
-model_cls = scvi.model.LinearSCVI
-model_cls.setup_anndata(
-    adata,
-    layer=COUNTS_LAYER,
-    batch_key=BATCH_KEY,
-)
 
 search_space = {
     "model_params": {
-        "n_hidden": tune.choice(
-            [
-                64,
-                128,
-                256,
-            ]
-        ),
-        "n_latent": tune.choice(
-            [
-                10,
-                20,
-                30,
-                40,
-            ]
-        ),
+        "n_hidden": 256,
+        "n_latent": 40,
         "n_layers": tune.choice(
             [
                 1,
@@ -94,30 +74,39 @@ search_space = {
     },
 }
 
-ray.init(log_to_driver=False)
+for model_cls in [scvi.model.SCVI, scvi.model.LinearSCVI]:
 
-results = autotune.run_autotune(
-    model_cls,
-    data=adata,
-    mode="min",
-    metrics="validation_loss",
-    search_space=search_space,
-    num_samples=192,
-    resources={
-        "cpu": 63,
-        "gpu": 1,
-    },
-)
-
-results.result_grid.get_dataframe().to_csv(
-    f"{PREFIX}_{GENOME}_processing_linear_scVI_hps.csv",
-)
-
-print(
-    results.result_grid.get_best_result(
-        "validation_loss",
-        mode="min",
+    model_cls.setup_anndata(
+        adata,
+        layer=COUNTS_LAYER,
+        batch_key=BATCH_KEY,
     )
-)
 
-ray.shutdown()
+    ray.init(log_to_driver=False)
+
+    results = autotune.run_autotune(
+        model_cls,
+        data=adata,
+        mode="min",
+        metrics="validation_loss",
+        search_space=search_space,
+        num_samples=40,
+        resources={
+            "cpu": 63,
+            "gpu": 1,
+        },
+        ignore_reinit_error=True,
+    )
+
+    results.result_grid.get_dataframe().to_csv(
+        f"{PREFIX}_{GENOME}_processing_{model_cls.__name__}_hps.csv",
+    )
+
+    print(
+        results.result_grid.get_best_result(
+            "validation_loss",
+            mode="min",
+        )
+    )
+
+    ray.shutdown()

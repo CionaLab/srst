@@ -10,6 +10,7 @@ scvi.settings.seed = 0
 
 PREFIX = "integrated"
 GENOME = "ky21"
+COUNTS_LAYER = "counts"
 
 STAGES_SC = [
     "midG",
@@ -27,7 +28,7 @@ d_patterns = {
 
 adata = sc.read_h5ad(f"{PREFIX}_{GENOME}.h5ad")
 
-model = scvi.model.LinearSCVI.load(f"{PREFIX}_{GENOME}_linear_scVI")
+model = scvi.model.SCVI.load(f"{PREFIX}_{GENOME}_SCVI")
 
 adatas = {s: sc.read_h5ad(f"{PREFIX}_{GENOME}_npisc_{s}.h5ad") for s in STAGES_SC}
 
@@ -38,7 +39,6 @@ adatas_sbc = {
 df_ky_sp = pd.read_csv("npisc/ky2021_swissprot_map.csv")
 
 for k in STAGES_SC:
-
     de_change = model.differential_expression(
         adatas[k],
         groupby="leiden",
@@ -47,7 +47,7 @@ for k in STAGES_SC:
         batch_correction=True,
     )
 
-    de_change["log10_pscore"] = np.log10(de_change["proba_not_de"])
+    de_change["log10_pscore"] = np.log10(de_change["proba_m2"])
     de_change = de_change.join(
         adata.var,
         how="inner",
@@ -69,7 +69,6 @@ for k in STAGES_SC:
     )
 
 for k in STAGES_SC:
-
     de_change = model.differential_expression(
         adatas_sbc[k],
         groupby="leiden",
@@ -78,7 +77,7 @@ for k in STAGES_SC:
         batch_correction=True,
     )
 
-    de_change["log10_pscore"] = np.log10(de_change["proba_not_de"])
+    de_change["log10_pscore"] = np.log10(de_change["proba_m2"])
     de_change = de_change.join(
         adata.var,
         how="inner",
