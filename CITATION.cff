@@ -1,0 +1,43 @@
+# This CITATION.cff file was generated with cffinit.
+# Visit https://bit.ly/cffinit to generate yours today!
+
+cff-version: 1.2.0
+title: >-
+  Code for "The integration of in situ hybridization-derived
+  spatial and developmental lineage information with
+  single-cell RNA sequencing datasets in embryos of the
+  marine invertebrate Ciona"
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+authors:
+  - given-names: Yishen
+    family-names: Miao
+    email: ymiao66@ucsb.edu
+    affiliation: 'University of Calilfornia, Santa Barbara'
+    orcid: 'https://orcid.org/0000-0001-7868-7402'
+  - given-names: Matthew
+    family-names: Kourakis
+    email: kourakis@ucsb.edu
+    affiliation: 'University of Calilfornia, Santa Barbara'
+    orcid: 'https://orcid.org/0000-0002-1261-3811'
+  - given-names: Abhinav
+    family-names: Bharat
+    email: abharat@ucsb.edu
+    affiliation: 'University of Calilfornia, Santa Barbara'
+    orcid: 'https://orcid.org/0009-0004-4291-9151'
+  - given-names: Isabela
+    family-names: Machado
+    orcid: 'https://orcid.org/0009-0009-5257-8166'
+    affiliation: 'University of Calilfornia, Santa Barbara'
+  - given-names: Matthew
+    family-names: Tang
+    affiliation: 'University of Calilfornia, Santa Barbara'
+    orcid: 'https://orcid.org/0009-0008-7543-7051'
+  - given-names: William C.
+    family-names: Smith
+    email: w_smith@ucsb.edu
+    affiliation: 'University of Calilfornia, Santa Barbara'
+    orcid: 'https://orcid.org/0000-0002-6257-7695'
+license: GPL-3.0
