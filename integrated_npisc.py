@@ -26,6 +26,7 @@ from npisc.build_matrix import (
 torch.set_float32_matmul_precision("high")
 scvi.settings.dl_num_workers = 63
 scvi.settings.seed = 0
+scvi.settings.batch_size = 1024
 
 # %%
 
@@ -143,6 +144,8 @@ for key in adatas.keys():
 # %%
 
 STAGES_SC = [
+    "c64",
+    "iniG",
     "midG",
     "earN",
     "latN",
@@ -247,6 +250,7 @@ a_model.train(
     early_stopping=True,
     early_stopping_patience=20,
     early_stopping_monitor="elbo_validation",
+    batch_size=scvi.settings.batch_size,
 )
 
 a_model.save(
@@ -397,11 +401,9 @@ for (_, k1), (_, k2) in adjacent(STAGES_MAPPING):
 l_cross_stage = (
     f"midG_{k}"
     for k in (
-        "8",
-        "10",
-        "12",
-        "16",
-        "21",
+        "6",
+        "11",
+        "19",
     )
 )
 
@@ -424,29 +426,27 @@ STAGES_SUBCLUSTERS = [
         "mid gastrula",
         "midG",
         (
-            "8",
-            "10",
-            "12",
-            "16",
-            "21",
+            "6",
+            "11",
+            "19",
         ),
     ),
     (
         "early neurula",
         "earN",
         (
-            "10",
-            "5",
-            "18",
+            "9",
+            "12",
+            "3",
         ),
     ),
     (
         "late neurula",
         "latN",
         (
-            "3",
+            "2",
+            "19",
             "25",
-            "21",
         ),
     ),
 ]

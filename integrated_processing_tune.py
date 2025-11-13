@@ -1,6 +1,3 @@
-# Install dependencies for Ray from PyPI
-# pip install -U "ray[data,train,tune,serve,rllib,default]" "hyperopt"
-
 import scanpy as sc
 import scvi
 import torch
@@ -12,6 +9,7 @@ from scvi import autotune
 torch.set_float32_matmul_precision("high")
 scvi.settings.dl_num_workers = 63
 scvi.settings.seed = 0
+scvi.settings.batch_size = 1024
 
 PREFIX = "integrated"
 GENOME = "ky21"
@@ -91,6 +89,7 @@ search_space = {
     "train_params": {
         "max_epochs": 100,
         "plan_kwargs": {"lr": tune.loguniform(1e-4, 1e-2)},
+        "batch_size": scvi.settings.batch_size,
     },
 }
 
@@ -100,22 +99,23 @@ results = autotune.run_autotune(
     model_cls,
     data=adata,
     mode="min",
-    metrics="validation_loss",
+    metrics="elbo_validation",
     search_space=search_space,
     num_samples=192,
     resources={
         "cpu": 63,
         "gpu": 1,
     },
+    ignore_reinit_error=True,
 )
 
 results.result_grid.get_dataframe().to_csv(
-    f"{PREFIX}_{GENOME}_processing_linear_scVI_hps.csv",
+    f"{PREFIX}_{GENOME}_processing_{model_cls.__name__}_hps.csv",
 )
 
 print(
     results.result_grid.get_best_result(
-        "validation_loss",
+        "elbo_validation",
         mode="min",
     )
 )

@@ -7,11 +7,14 @@ GENOME = "ky21"
 # cellranger mkref --genome=ky21_cellranger --fasta=HT.RefwMG0.fasta --genes=HT.KY21Gene.2.wMG0.sort.gtf
 # STAR --runThreadN 64 --runMode genomeGenerate --genomeDir ky21_star --genomeFastaFiles HT.RefwMG0.fasta --sjdbGTFfile HT.KY21Gene.2.wMG0.sort.gtf --sjdbOverhang 149
 
-# seq -f "SRR905%04g" 987 1007 | parallel --jobs 8 'cellranger count --id={} --transcriptome=ky21_cellranger --fastqs cao2019/{} --sample {} --create-bam true'
+# seq -f "SRR905%04g" 985 1007 | parallel --jobs 8 'cellranger count --id={} --transcriptome=ky21_cellranger --fastqs cao2019/{} --sample {} --create-bam true'
 # seq -f "SRR811169%01g" 1 4 | parallel --jobs 8 'cellranger count --id={} --transcriptome=ky21_cellranger --fastqs sharma2019/{} --sample {} --create-bam true'
-# seq -f "SRR1297104%01g" 2 5 | parallel --jobs 1 'STAR --runThreadN 64 --genomeDir ky21_star --readFilesIn winkley2021/raw_data/{}_R2.fastq.gz winkley2021/raw_data/{}_R1.fastq.gz --soloOutFileNames {}/ features.tsv barcodes.tsv matrix.mtx --soloType CB_UMI_Simple --soloCBstart 1 --soloCBlen 12 --soloUMIstart 13 --soloUMIlen 9 --soloCBwhitelist None --soloBarcodeReadLength 0 --clip3pAdapterSeq AAGCAGTGGTATCAACGCAGAGTGAATGGG --readFilesCommand zcat'
+# {seq -f "SRR1297102%01g" 6 9; seq -f "SRR1297103%01g" 4 7; seq -f "SRR1297104%01g" 2 5;} | parallel --jobs 1 'STAR --runThreadN 64 --genomeDir ky21_star --readFilesIn winkley2021/{}/{}_2.fastq.gz winkley2021/{}/{}_1.fastq.gz --soloOutFileNames {}/ features.tsv barcodes.tsv matrix.mtx --soloType CB_UMI_Simple --soloCBstart 1 --soloCBlen 12 --soloUMIstart 13 --soloUMIlen 9 --soloCBwhitelist None --soloBarcodeReadLength 0 --clip3pAdapterSeq AAGCAGTGGTATCAACGCAGAGTGAATGGG --readFilesCommand zcat'
+
 
 samples = [
+    ("SRR9050985", "iniG", "cao2019", "outs/filtered_feature_bc_matrix"),
+    ("SRR9050986", "iniG", "cao2019", "outs/filtered_feature_bc_matrix"),
     ("SRR9050987", "midG", "cao2019", "outs/filtered_feature_bc_matrix"),
     ("SRR9050988", "midG", "cao2019", "outs/filtered_feature_bc_matrix"),
     ("SRR9050989", "earN", "cao2019", "outs/filtered_feature_bc_matrix"),
@@ -37,7 +40,15 @@ samples = [
     ("SRR8111692", "larva", "sharma2019", "outs/filtered_feature_bc_matrix"),
     ("SRR8111693", "larva", "sharma2019", "outs/filtered_feature_bc_matrix"),
     ("SRR8111694", "larva", "sharma2019", "outs/filtered_feature_bc_matrix"),
-    # seq -f "SRR1297104%01g" 2 5| parallel 'gzip {}/Gene/{filtered,raw}/{barcodes.tsv,features.tsv,matrix.mtx}'
+    # {seq -f "SRR1297102%01g" 6 9; seq -f "SRR1297103%01g" 4 7; seq -f "SRR1297104%01g" 2 5;}| parallel 'gzip {}/Gene/{filtered,raw}/{barcodes.tsv,features.tsv,matrix.mtx}'
+    ("SRR12971026", "c64", "winkley2021", "Gene/filtered"),
+    ("SRR12971027", "c64", "winkley2021", "Gene/filtered"),
+    ("SRR12971028", "c64", "winkley2021", "Gene/filtered"),
+    ("SRR12971029", "c64", "winkley2021", "Gene/filtered"),
+    ("SRR12971034", "iniG", "winkley2021", "Gene/filtered"),
+    ("SRR12971035", "iniG", "winkley2021", "Gene/filtered"),
+    ("SRR12971036", "iniG", "winkley2021", "Gene/filtered"),
+    ("SRR12971037", "iniG", "winkley2021", "Gene/filtered"),
     ("SRR12971042", "midG", "winkley2021", "Gene/filtered"),
     ("SRR12971043", "midG", "winkley2021", "Gene/filtered"),
     ("SRR12971044", "midG", "winkley2021", "Gene/filtered"),

@@ -6,6 +6,7 @@ import torch
 torch.set_float32_matmul_precision("high")
 scvi.settings.dl_num_workers = 63
 scvi.settings.seed = 0
+scvi.settings.batch_size = 1024
 
 PREFIX = "integrated"
 GENOME = "ky21"
@@ -54,7 +55,7 @@ scvi.model.LinearSCVI.setup_anndata(
     batch_key=BATCH_KEY,
 )
 
-# validation loss 3222.76611328125
+# elbo validation loss 3806.071533203125
 model = scvi.model.LinearSCVI(
     adata,
     gene_likelihood="nb",
@@ -70,11 +71,12 @@ model.train(
     early_stopping=True,
     early_stopping_patience=20,
     early_stopping_monitor="elbo_validation",
-    plan_kwargs={"lr": 0.009868659319507422},
+    plan_kwargs={"lr": 0.007020210078255574},
+    batch_size=scvi.settings.batch_size,
 )
 
 model.save(
-    f"{PREFIX}_{GENOME}_linear_scVI",
+    f"{PREFIX}_{GENOME}_{model.__class__.__name__}",
     overwrite=True,
     save_anndata=True,
 )

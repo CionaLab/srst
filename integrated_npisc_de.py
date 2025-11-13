@@ -7,6 +7,7 @@ import torch
 torch.set_float32_matmul_precision("high")
 scvi.settings.dl_num_workers = 63
 scvi.settings.seed = 0
+scvi.settings.batch_size = 1024
 
 PREFIX = "integrated"
 GENOME = "ky21"
@@ -27,7 +28,9 @@ d_patterns = {
 
 adata = sc.read_h5ad(f"{PREFIX}_{GENOME}.h5ad")
 
-model = scvi.model.LinearSCVI.load(f"{PREFIX}_{GENOME}_linear_scVI")
+model = scvi.model.LinearSCVI.load(
+    f"{PREFIX}_{GENOME}_{scvi.model.LinearSCVI.__name__}"
+)
 
 adatas = {s: sc.read_h5ad(f"{PREFIX}_{GENOME}_npisc_{s}.h5ad") for s in STAGES_SC}
 
@@ -45,6 +48,7 @@ for k in STAGES_SC:
         weights="uniform",
         filter_outlier_cells=True,
         batch_correction=True,
+        batch_size=scvi.settings.batch_size,
     )
 
     de_change["log10_pscore"] = np.log10(de_change["proba_m2"])
@@ -73,6 +77,7 @@ for k in STAGES_SC:
         weights="uniform",
         filter_outlier_cells=True,
         batch_correction=True,
+        batch_size=scvi.settings.batch_size,
     )
 
     de_change["log10_pscore"] = np.log10(de_change["proba_m2"])
