@@ -1,4 +1,5 @@
 # Code for "Spatially resolving single-cell transcriptomes in the embryo of the marine invertebrate *Ciona*"
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21298925.svg)](https://doi.org/10.5281/zenodo.21298925)
 
 This repository contains code for the study
 "Spatially resolving single-cell transcriptomes in the embryo of the marine
