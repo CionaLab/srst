@@ -3,9 +3,7 @@
 
 cff-version: 1.2.0
 title: >-
-  Code for "The integration of in situ hybridization-derived
-  spatial and developmental lineage information with
-  single-cell RNA sequencing datasets in embryos of the
+  Code for "Spatially resolving single-cell transcriptomes in the embryo of the
   marine invertebrate Ciona"
 message: >-
   If you use this software, please cite it using the

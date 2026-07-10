@@ -55,6 +55,7 @@ scvi.model.LinearSCVI.setup_anndata(
     batch_key=BATCH_KEY,
 )
 
+# Update the hyperparameters from the results of integrated_processing_tune.py.
 # elbo validation loss 3806.071533203125
 model = scvi.model.LinearSCVI(
     adata,
@@ -65,6 +66,7 @@ model = scvi.model.LinearSCVI(
     dispersion="gene-batch",
 )
 
+# Update the hyperparameters from the results of integrated_processing_tune.py.
 model.train(
     check_val_every_n_epoch=1,
     max_epochs=800,

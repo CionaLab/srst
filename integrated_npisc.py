@@ -29,6 +29,7 @@ scvi.settings.seed = 0
 scvi.settings.batch_size = 1024
 
 # %%
+# Define constants.
 
 PREFIX = "integrated"
 GENOME = "ky21"
@@ -53,6 +54,8 @@ SCVI_EXPRESSION_KEY = "scVI_normalized"
 SCVI_LOG1P_KEY = "scVI_log1p"
 
 # %%
+# Process the marker data.
+
 df = pd.read_csv("npisc/pass_02.tsv", sep="\t")
 df_map = pd.read_csv("npisc/kh2012_ky2021_map.tsv", sep="\t")
 df_map["KH2012"] = "KH2012:" + df_map["KH2012"]
@@ -90,6 +93,7 @@ for k1, _, k2 in STAGES_IN_SITU:
     )
 
 # %%
+# Prepare the GeoJSON files for neural plate plotting.
 
 d_patterns = {
     k: pd.read_csv(
@@ -109,6 +113,7 @@ for k in gdfs:
     )
 
 # %%
+# Dividing the data into stages.
 
 adata = sc.read_h5ad(f"{PREFIX}_{GENOME}.h5ad")
 adatas = split_adata(adata, "stage")
@@ -169,6 +174,7 @@ STAGES_MAPPING = [
 ]
 
 # %%
+# Map the cells to the in situ patterns and plot the results.
 
 for k1, k2 in STAGES_MAPPING:
     t1, t2, t3 = map_cells(
@@ -229,6 +235,7 @@ for k1, k2 in STAGES_MAPPING:
     t2.to_csv(f"{PREFIX}_{GENOME}_npisc_{k2}_npmap.csv")
 
 # %%
+# Prepare CellAssign model for mid gastrula stage validation.
 a_tmp = adatas["midG"][
     :, adatas["midG"].var_names.intersection(d_patterns["midG"].T.index)
 ].copy()
@@ -280,6 +287,7 @@ a_tmp.obs["pred_cellassign"] = pred_cellassign.idxmax(axis=1).values
 a_tmp.obs["pred_npisc"] = pred_npisc.idxmax(axis=0).values
 
 # %%
+# Compare the CellAssign and npisc predictions with the ground truth.
 
 d_ground_truth = pd.read_csv(
     "npisc/ground_truth_map.tsv",
@@ -343,6 +351,7 @@ print(
 )
 
 # %%
+# Perform cross-stage analysis of the neural plate cells.
 
 dg = make_digraph(
     adatas,
@@ -397,7 +406,10 @@ for (_, k1), (_, k2) in adjacent(STAGES_MAPPING):
     g.savefig(f"{PREFIX}_{GENOME}_npisc_cross_stage_{k1}_{k2}.png", dpi=300)
 
 # %%
+# Find the shortest paths between the mid gastrula and late neurula stages.
+# These clusters should be most similar to each other.
 
+# Update the list from the mid gastrula stage mapping plot.
 l_cross_stage = (
     f"midG_{k}"
     for k in (
@@ -420,7 +432,10 @@ for (_, k1), (_, k2) in adjacent(STAGES_MAPPING):
         pass
 
 # %%
+# Selecting neural plate clusters for further analysis.
 
+# Update the list from the mid gastrula stage mapping plot and the subsequent
+# shortest paths between stages.
 STAGES_SUBCLUSTERS = [
     (
         "mid gastrula",
@@ -453,6 +468,8 @@ STAGES_SUBCLUSTERS = [
 ]
 
 # %%
+# Split the neural plate clusters into separate AnnData objects and generate
+# subclusters.
 
 adatas = {s: sc.read_h5ad(f"{PREFIX}_{GENOME}_npisc_{s}.h5ad") for s in STAGES_SC}
 
@@ -494,6 +511,7 @@ adatas_sbc = {
 }
 
 # %%
+# Map the neural plate subclusters to the in situ patterns and plot the results.
 
 for k1, k2, _ in STAGES_SUBCLUSTERS:
     t1, t2, t3 = map_cells(
@@ -553,6 +571,8 @@ for k1, k2, _ in STAGES_SUBCLUSTERS:
     fig.savefig(f"{PREFIX}_{GENOME}_npisc_np_{k2}_npmap.png")
     t2.to_csv(f"{PREFIX}_{GENOME}_npisc_np_{k2}_npmap.csv")
 # %%
+# Shortest paths between the mid gastrula and late neurula stages for the neural
+# plate subclusters.
 
 dg_sbc = make_digraph(
     adatas_sbc,
