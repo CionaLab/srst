@@ -20,7 +20,7 @@ pandas==2.3.3
 pandas-stubs==3.0.0.260204
 python-igraph==1.0.0
 pytorch-lightning==2.6.4
-ray[data,train,tune,serve,rllib,default]==2.55.1
+ray[data,train,tune,serve,rllib,default]==2.56.0
 referencing==0.37.0
 requests==2.34.2
 scanpy==1.12.1
