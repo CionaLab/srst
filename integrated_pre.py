@@ -155,8 +155,9 @@ def transfer_labels(adata, source, ref, labels, tag):
             "n_cells": ref["library"].value_counts(),
         }
     )
-    match["run_stage"] = match["sample"].map(meta["stage"])
     matched = match["frac_matched"] > MIN_FRAC_MATCHED
+    match["sample"] = match["sample"].where(matched)
+    match["run_stage"] = match["sample"].map(meta["stage"])
     print(match.sort_index().to_string())
     print(
         f"{tag}: published libraries without a run here:", list(match.index[~matched])
