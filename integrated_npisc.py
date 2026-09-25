@@ -13,6 +13,8 @@
 
 # %% Setup
 import re
+from collections.abc import Iterable
+from typing import Any
 
 import anndata as ad
 import decoupler as dc
@@ -20,10 +22,13 @@ import geopandas as gpd
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 import scanpy as sc
 import scvi
+from matplotlib.axes import Axes
 from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.figure import Figure
 from matplotlib.patches import Rectangle
 from moscot.problems.time import TemporalProblem
 
@@ -103,7 +108,7 @@ EXPRESSED_MIN = 0.5
 SPECIFIC_MIN = 1.0
 TOP_GENES = 3
 MAP_PER_CLONE = 1
-MAP_GENES = []
+MAP_GENES: list[str] = []
 DPI = 300
 METRICS = [
     "precision",
@@ -186,7 +191,7 @@ GRID_ROWS = [
 
 
 # %% Helpers
-def to_generation(label, gen):
+def to_generation(label: str, gen: int) -> set[str]:
     """Move every blastomere named in a label to one generation: the ancestor
     of a later cell, all descendants of an earlier one.
 
@@ -209,7 +214,7 @@ def to_generation(label, gen):
     return out
 
 
-def winkley_blastomeres(label):
+def winkley_blastomeres(label: str) -> set[str]:
     """Find the NP_GRID cells covered by a Winkley "NP (A|a) columns:rows"
     grid label.
 
@@ -231,7 +236,11 @@ def winkley_blastomeres(label):
     }
 
 
-def set_scores(pick, truth, n=len(NP_GRID)):
+def set_scores(
+    pick: set[str],
+    truth: set[str],
+    n: int = len(NP_GRID),
+) -> dict[str, float]:
     """Score a picked blastomere set against a true set.
 
     :param pick: Predicted blastomeres.
@@ -268,7 +277,7 @@ def set_scores(pick, truth, n=len(NP_GRID)):
     }
 
 
-def num(node):
+def num(node: str) -> int:
     """Read the Leiden number of a "{stage}_{leiden}" cluster name.
 
     :param node: Cluster name, e.g. "midG_12".
@@ -279,7 +288,7 @@ def num(node):
     return int(node.rsplit("_", 1)[-1])
 
 
-def labels_of(adata, key):
+def labels_of(adata: ad.AnnData, key: str) -> np.ndarray:
     """Read an obs column as strings.
 
     :param adata: Cells.
@@ -292,7 +301,7 @@ def labels_of(adata, key):
     return adata.obs[key].astype(object).fillna("").astype(str).to_numpy()
 
 
-def share_list(e, key, share):
+def share_list(e: pd.DataFrame, key: str, share: str) -> pd.Series:
     """Format each cluster's children or parents as text.
 
     :param e: Transport edges.
@@ -308,13 +317,13 @@ def share_list(e, key, share):
     e = e[e[share] >= MIN_EDGE].sort_values(share, ascending=False)
     other = "to" if key == "from" else "from"
 
-    def pairs(g):
+    def pairs(g: pd.DataFrame) -> str:
         return ",".join(f"{n}:{v:.2f}" for n, v in zip(g[other], g[share]))
 
     return e.groupby(key)[[other, share]].apply(pairs)
 
 
-def plain(v):
+def plain(v: object) -> object:
     """Convert a numpy scalar to a Python value.
 
     :param v: Any value.
@@ -325,7 +334,11 @@ def plain(v):
     return v.item() if hasattr(v, "item") else v
 
 
-def edges_between(edges, sources, targets):
+def edges_between(
+    edges: pd.DataFrame,
+    sources: list[str],
+    targets: list[str],
+) -> pd.DataFrame:
     """Select the edges from some clusters to others.
 
     :param edges: Cluster transport edges from transport_edges.
@@ -341,7 +354,7 @@ def edges_between(edges, sources, targets):
     return edges[keep]
 
 
-def early_blastomeres(label, gen):
+def early_blastomeres(label: str, gen: int) -> set[str]:
     """Find the blastomeres of a Winkley label at one generation, reading the
     early neural labels through WINKLEY_EARLY.
 
@@ -355,7 +368,7 @@ def early_blastomeres(label, gen):
     return to_generation(WINKLEY_EARLY.get(label, label), gen)
 
 
-def fmt(weights, keep=None):
+def fmt(weights: dict[str, float], keep: set[str] | None = None) -> str:
     """Format weights as "name:weight" text, largest first.
 
     :param weights: Weight of each name.
@@ -373,7 +386,7 @@ def fmt(weights, keep=None):
     return ",".join(f"{k}:{v:.2f}" for k, v in items)
 
 
-def blastomere_key(b):
+def blastomere_key(b: str) -> tuple[str, int]:
     """Sort blastomere names by line, then cell number.
 
     :param b: Blastomere name, e.g. "a9.49".
@@ -384,7 +397,7 @@ def blastomere_key(b):
     return b[0], int(b.split(".")[1])
 
 
-def grid_key(b):
+def grid_key(b: str) -> tuple[int, int]:
     """Sort NP_GRID cells by grid row I to VI, then column.
 
     :param b: NP_GRID cell name.
@@ -399,7 +412,7 @@ def grid_key(b):
 NP_ORDER = sorted(NP_GRID, key=grid_key)
 
 
-def generation_of(b):
+def generation_of(b: str) -> int:
     """Read the generation of a blastomere name.
 
     :param b: Blastomere name, e.g. "A10.29".
@@ -410,7 +423,7 @@ def generation_of(b):
     return int(b.split(".")[0][1:])
 
 
-def covered(name, cells):
+def covered(name: str, cells: list[str]) -> bool:
     """Check whether a blastomere is one of some cells, or an ancestor or
     descendant of one.
 
@@ -425,7 +438,11 @@ def covered(name, cells):
     return any(name in to_generation(c, gen) for c in cells)
 
 
-def map_cells(b, st, stage_maps):
+def map_cells(
+    b: str,
+    st: str,
+    stage_maps: dict[str, gpd.GeoDataFrame],
+) -> set[str]:
     """Find the cells on a stage map that are a blastomere or descend from it.
 
     :param b: Blastomere name.
@@ -450,7 +467,7 @@ def map_cells(b, st, stage_maps):
     return to_generation(b, IDENTITY_GEN[st])
 
 
-def join_names(names):
+def join_names(names: Iterable[str]) -> str:
     """Join blastomere names in line and cell-number order.
 
     :param names: Blastomere names.
@@ -461,7 +478,7 @@ def join_names(names):
     return "/".join(sorted(names, key=blastomere_key))
 
 
-def auroc(score, positive):
+def auroc(score: npt.ArrayLike, positive: npt.ArrayLike) -> float:
     """Compute the area under the ROC curve, ties counting half.
 
     :param score: Score of each item.
@@ -480,7 +497,7 @@ def auroc(score, positive):
     return (ranks[positive].sum() - n1 * (n1 + 1) / 2) / (n1 * n0)
 
 
-def short_name(name):
+def short_name(name: str) -> str:
     """Drop the parenthesised parts of a gene name.
 
     :param name: Gene name, e.g. "Ptf1a-r (PTF1A)".
@@ -491,7 +508,7 @@ def short_name(name):
     return re.sub(r"\s*\([^()]*\)", "", str(name)).strip()
 
 
-def gene_label(row):
+def gene_label(row: pd.Series | dict) -> str:
     """Label a gene for plots.
 
     :param row: Row with "gene" and optionally "gene_name".
@@ -505,7 +522,7 @@ def gene_label(row):
     return name or row["gene"]
 
 
-def file_safe(text):
+def file_safe(text: str) -> str:
     """Make text usable in a file name.
 
     :param text: Any text.
@@ -517,7 +534,7 @@ def file_safe(text):
     return re.sub(r"[^\w.-]+", "_", str(text))
 
 
-def style(ax, grid_axis="y"):
+def style(ax: Axes, grid_axis: str | None = "y") -> None:
     """Style an axis: surface background, no top or right spine, muted ticks
     and a hairline grid.
 
@@ -539,7 +556,7 @@ def style(ax, grid_axis="y"):
         ax.set_axisbelow(True)
 
 
-def save(fig, out, name):
+def save(fig: Figure, out: str, name: str) -> None:
     """Save a figure as {out}_{name}.png at DPI and close it.
 
     :param fig: Figure to save.
@@ -554,7 +571,12 @@ def save(fig, out, name):
     plt.close(fig)
 
 
-def write_csv(table, out, name, **kwargs):
+def write_csv(
+    table: pd.DataFrame,
+    out: str,
+    name: str,
+    **kwargs: Any,
+) -> None:
     """Write a table as {out}_{name}.csv, or .tsv when sep is a tab.
 
     :param table: Table to write.
@@ -571,7 +593,7 @@ def write_csv(table, out, name, **kwargs):
 
 
 # %% Inputs
-def load_territory_net():
+def load_territory_net() -> pd.DataFrame:
     """Read the MARKER_STAGES rows of MARKERS as a decoupler network.
     Territories with the same gene set become one source named like
     "a9.35/a9.36/a9.39/a9.40".
@@ -607,7 +629,7 @@ def load_territory_net():
     )
 
 
-def load_stage_markers():
+def load_stage_markers() -> pd.DataFrame:
     """Read the MARKER_STAGES rows of MARKERS for the expression benchmark.
 
     :returns: One row per stage and KY21 gene: "aniseed" (ANISEED gene name),
@@ -648,7 +670,7 @@ def load_stage_markers():
     return markers
 
 
-def load_known_genes():
+def load_known_genes() -> set[str]:
     """Collect every gene in MARKERS, at any stage.
 
     :returns: KY21 IDs of the genes with ANISEED in situ data.
@@ -662,7 +684,7 @@ def load_known_genes():
     return known
 
 
-def load_homologs():
+def load_homologs() -> pd.DataFrame:
     """Read the SwissProt homolog of each KY21 gene from HOMOLOGS, with
     {ECO:...} evidence tags removed.
 
@@ -678,7 +700,7 @@ def load_homologs():
     return homologs[["KH2012", "uniprot", "homolog"]]
 
 
-def load_stage_maps():
+def load_stage_maps() -> dict[str, gpd.GeoDataFrame]:
     """Read the neural plate polygons of each stage in STAGE_MAPS, with the
     "*" of right-side names dropped.
 
@@ -698,7 +720,7 @@ def load_stage_maps():
 
 
 # %% Clusters per stage
-def present_stages(adata):
+def present_stages(adata: ad.AnnData) -> list[str]:
     """List the CHAIN stages that have cells.
 
     :param adata: Cells.
@@ -713,7 +735,7 @@ def present_stages(adata):
     ]
 
 
-def cluster_stages(adata, stages):
+def cluster_stages(adata: ad.AnnData, stages: list[str]) -> np.ndarray:
     """Run neighbours on LATENT_KEY, Leiden at RESOLUTION and UMAP on each
     stage separately. Sets obs "stage_leiden", obs "stage_cluster"
     ("{stage}_{leiden}", missing for clusters under MIN_CLUSTER cells) and
@@ -760,7 +782,11 @@ def cluster_stages(adata, stages):
 
 
 # %% Differential expression
-def differential_expression(adata, stages, homologs):
+def differential_expression(
+    adata: ad.AnnData,
+    stages: list[str],
+    homologs: pd.DataFrame,
+) -> dict[str, pd.DataFrame]:
     """Test each cluster against the other clusters of its stage with the
     saved scVI model (change mode, DE_DELTA, batch corrected), then repeat
     with Wilcoxon within each source that has two or more clusters of
@@ -894,7 +920,10 @@ def differential_expression(adata, stages, homologs):
 
 
 # %% Optimal transport
-def solve_transport(adata, stages):
+def solve_transport(
+    adata: ad.AnnData,
+    stages: list[str],
+) -> tuple[TemporalProblem, ad.AnnData]:
     """Solve one moscot TemporalProblem across the stages on LATENT_KEY with
     EPSILON and TAU_A.
 
@@ -922,7 +951,10 @@ def solve_transport(adata, stages):
     return tp, sub
 
 
-def clusters_by_stage(adata, stages):
+def clusters_by_stage(
+    adata: ad.AnnData,
+    stages: list[str],
+) -> dict[str, list[str]]:
     """List the stage clusters of each stage.
 
     :param adata: Cells with stage_cluster.
@@ -940,7 +972,11 @@ def clusters_by_stage(adata, stages):
     return out
 
 
-def transport_edges(tp, stages, clusters_at):
+def transport_edges(
+    tp: TemporalProblem,
+    stages: list[str],
+    clusters_at: dict[str, list[str]],
+) -> pd.DataFrame:
     """Tabulate the transported mass between every pair of clusters of
     adjacent stages.
 
@@ -980,7 +1016,7 @@ def transport_edges(tp, stages, clusters_at):
     return pd.concat(edges, ignore_index=True)
 
 
-def cluster_table(adata):
+def cluster_table(adata: ad.AnnData) -> pd.DataFrame:
     """Summarise each stage cluster.
 
     :param adata: Cells with stage_cluster.
@@ -1018,7 +1054,7 @@ def cluster_table(adata):
     return nodes
 
 
-def transport_graph(nodes, edges):
+def transport_graph(nodes: pd.DataFrame, edges: pd.DataFrame) -> nx.DiGraph:
     """Build the transport network, keeping edges whose fwd or bwd share is
     MIN_EDGE or more.
 
@@ -1044,7 +1080,11 @@ def transport_graph(nodes, edges):
 
 
 # %% Anchor mid-gastrula clusters
-def anchor_clusters(adata, net, nodes):
+def anchor_clusters(
+    adata: ad.AnnData,
+    net: pd.DataFrame,
+    nodes: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Series]:
     """Score each midG cluster against the ANISEED territories with decoupler
     ULM. Expression of the integration and marker genes is z-scored within
     each source, averaged per cluster and z-scored across clusters. A cluster
@@ -1123,7 +1163,12 @@ def anchor_clusters(adata, net, nodes):
     return es, pv, calls, cluster_pick
 
 
-def best_cluster_per_blastomere(es, pv, nodes, blastomeres):
+def best_cluster_per_blastomere(
+    es: pd.DataFrame,
+    pv: pd.DataFrame,
+    nodes: pd.DataFrame,
+    blastomeres: list[str],
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Rank the midG clusters for each blastomere by the ULM score of its
     territory.
 
@@ -1184,7 +1229,11 @@ def best_cluster_per_blastomere(es, pv, nodes, blastomeres):
 
 
 # %% Benchmarks
-def winkley_midg_benchmark(adata, cluster_pick, best):
+def winkley_midg_benchmark(
+    adata: ad.AnnData,
+    cluster_pick: pd.Series,
+    best: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Compare the blastomere set of each Winkley midG cell's cluster with the
     cells of its grid label using set_scores.
 
@@ -1260,13 +1309,13 @@ def winkley_midg_benchmark(adata, cluster_pick, best):
 
 
 def predict_identities(
-    edges,
-    cluster_pick,
-    clusters_at,
-    nodes,
-    stages,
-    stage_maps,
-):
+    edges: pd.DataFrame,
+    cluster_pick: pd.Series,
+    clusters_at: dict[str, list[str]],
+    nodes: pd.DataFrame,
+    stages: list[str],
+    stage_maps: dict[str, gpd.GeoDataFrame],
+) -> tuple[pd.DataFrame, pd.Series]:
     """Carry the midG blastomere sets through the transport to the later
     IDENTITY_GEN stages. A cluster's weight on a cell sums bwd x the parent's
     weight over its parent edges, split evenly over the cell's map_cells.
@@ -1289,7 +1338,7 @@ def predict_identities(
     :rtype: tuple[pandas.DataFrame, pandas.Series]
     """
     anchor_gen = IDENTITY_GEN[ANCHOR_STAGE]
-    identity = {}
+    identity: dict[str, dict[str, float]] = {}
     for c, bs in cluster_pick.items():
         if bs:
             identity[c] = {b: 1 / len(bs) for b in bs}
@@ -1298,25 +1347,24 @@ def predict_identities(
     i0 = stages.index(ANCHOR_STAGE)
     later = [s for s in stages[i0 + 1 :] if s in IDENTITY_GEN]
     for st in later:
-        nxt = {}
+        nxt: dict[str, dict[str, float]] = {}
         step = edges_between(edges, list(identity), clusters_at[st])
         for rec in step.to_dict("records"):
             weights = nxt.setdefault(rec["to"], {})
-            for b, w in identity[rec["from"]].items():
-                kids = map_cells(b, st, stage_maps)
-                kids = sorted(kids, key=blastomere_key)
-                for d in kids:
-                    add = rec["bwd"] * w / len(kids)
+            for b, frac in identity[rec["from"]].items():
+                cells = map_cells(b, st, stage_maps)
+                for d in sorted(cells, key=blastomere_key):
+                    add = rec["bwd"] * frac / len(cells)
                     weights[d] = weights.get(d, 0.0) + add
         identity = nxt
         for n in clusters_at[st]:
             w = identity.get(n, {})
-            anc = {}
+            anc: dict[str, float] = {}
             for d, v in w.items():
                 (a,) = to_generation(d, anchor_gen)
                 anc[a] = anc.get(a, 0.0) + v
             kept = {a for a, v in anc.items() if v >= MIN_SHOW}
-            top = max(sorted(anc), key=anc.get) if anc else ""
+            top = max(sorted(anc), key=lambda a: anc[a]) if anc else ""
             kids = map_cells(top, st, stage_maps) if top else set()
             keep = {d for d in w if to_generation(d, anchor_gen) & kept}
             rows.append(
@@ -1340,7 +1388,12 @@ def predict_identities(
     return identities, node_identity
 
 
-def adjacency_table(nodes, edges, node_identity, stages):
+def adjacency_table(
+    nodes: pd.DataFrame,
+    edges: pd.DataFrame,
+    node_identity: pd.Series,
+    stages: list[str],
+) -> pd.DataFrame:
     """Summarise each cluster with its neighbours in the transport.
 
     :param nodes: Per-cluster table from cluster_table.
@@ -1377,7 +1430,14 @@ def adjacency_table(nodes, edges, node_identity, stages):
     )
 
 
-def backward_benchmark(adata, tp, sub, cluster_pick, neural_clusters, stages):
+def backward_benchmark(
+    adata: ad.AnnData,
+    tp: TemporalProblem,
+    sub: ad.AnnData,
+    cluster_pick: pd.Series,
+    neural_clusters: list[str],
+    stages: list[str],
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Transport each midG neural plate cluster back to the Winkley-labelled
     cells of each BENCH_GEN stage and compare each label's share of the
     ancestry with its share of labelled cells. A label is expected when it
@@ -1488,14 +1548,14 @@ def backward_benchmark(adata, tp, sub, cluster_pick, neural_clusters, stages):
 
 
 def forward_benchmark(
-    adata,
-    tp,
-    sub,
-    cluster_pick,
-    neural_clusters,
-    clusters_at,
-    stages,
-):
+    adata: ad.AnnData,
+    tp: TemporalProblem,
+    sub: ad.AnnData,
+    cluster_pick: pd.Series,
+    neural_clusters: list[str],
+    clusters_at: dict[str, list[str]],
+    stages: list[str],
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Transport every midG cluster forward to the Cao tissue-labelled cells
     of each later stage and compare each tissue's share of the descendants
     with its share of labelled cells.
@@ -1593,7 +1653,13 @@ def forward_benchmark(
     return forward, pd.DataFrame(shares), summary
 
 
-def neural_plate_lineage(edges, stages, clusters_at, neural_clusters, nodes):
+def neural_plate_lineage(
+    edges: pd.DataFrame,
+    stages: list[str],
+    clusters_at: dict[str, list[str]],
+    neural_clusters: list[str],
+    nodes: pd.DataFrame,
+) -> pd.DataFrame:
     """Score each cluster's share of lineage through the midG neural plate
     clusters: 1 or 0 at midG, the bwd-weighted score of the parents later on,
     the fwd-weighted score of the children earlier on.
@@ -1657,7 +1723,12 @@ def neural_plate_lineage(edges, stages, clusters_at, neural_clusters, nodes):
 
 
 # %% Expression by blastomere
-def clone_shares(edges, cluster_pick, clusters_at, stages):
+def clone_shares(
+    edges: pd.DataFrame,
+    cluster_pick: pd.Series,
+    clusters_at: dict[str, list[str]],
+    stages: list[str],
+) -> dict[str, pd.DataFrame]:
     """Trace each midG neural plate cell (clone) forward through the
     transport. midG clusters split evenly over their blastomere set; later
     clusters sum bwd x their parents' shares, so sisters always get equal
@@ -1676,7 +1747,7 @@ def clone_shares(edges, cluster_pick, clusters_at, stages):
         cluster's cells descending from each clone (clusters x clones).
     :rtype: dict[str, pandas.DataFrame]
     """
-    share = {}
+    share: dict[str, dict[str, float]] = {}
     for c, bs in cluster_pick.items():
         if bs:
             share[c] = {b: 1 / len(bs) for b in bs}
@@ -1684,7 +1755,7 @@ def clone_shares(edges, cluster_pick, clusters_at, stages):
     i0 = stages.index(ANCHOR_STAGE)
     later = [s for s in stages[i0 + 1 :] if s in IDENTITY_GEN]
     for st in later:
-        nxt = {}
+        nxt: dict[str, dict[str, float]] = {}
         step = edges_between(edges, list(share), clusters_at[st])
         for rec in step.to_dict("records"):
             weights = nxt.setdefault(rec["to"], {})
@@ -1701,7 +1772,13 @@ def clone_shares(edges, cluster_pick, clusters_at, stages):
     return tables
 
 
-def clone_expression(de, share, nodes, stage, cells_of=None):
+def clone_expression(
+    de: pd.DataFrame,
+    share: pd.DataFrame,
+    nodes: pd.DataFrame,
+    stage: str,
+    cells_of: dict[str, set[str]] | None = None,
+) -> pd.DataFrame:
     """Average each gene's per-cluster DE statistics over each clone's cells
     at one stage, spreading a clone over clusters by share x cluster size. A
     gene is expressed in a clone at support EXPRESSED_MIN and specific when
@@ -1737,7 +1814,7 @@ def clone_expression(de, share, nodes, stage, cells_of=None):
         up_replicated=(up & d["replicated"].astype(bool)).astype(float),
     )
 
-    def per_clone(col):
+    def per_clone(col: str) -> pd.DataFrame:
         m = d.pivot(index="gene", columns="stage_cluster", values=col)
         return m.reindex(columns=comp.index).fillna(0.0) @ comp
 
@@ -1791,7 +1868,13 @@ def clone_expression(de, share, nodes, stage, cells_of=None):
     return table
 
 
-def predict_expression(de, shares, nodes, stage_maps, known_genes):
+def predict_expression(
+    de: dict[str, pd.DataFrame],
+    shares: dict[str, pd.DataFrame],
+    nodes: pd.DataFrame,
+    stage_maps: dict[str, gpd.GeoDataFrame],
+    known_genes: set[str],
+) -> dict[str, pd.DataFrame]:
     """Run clone_expression at every stage that has DE results and clone
     shares.
 
@@ -1832,7 +1915,7 @@ def predict_expression(de, shares, nodes, stage_maps, known_genes):
     return results
 
 
-def top_genes(expression):
+def top_genes(expression: dict[str, pd.DataFrame]) -> pd.DataFrame:
     """Pick the TOP_GENES most specific genes of each clone at each stage
     among the specific genes without ANISEED data.
 
@@ -1865,7 +1948,10 @@ def top_genes(expression):
     return table.reset_index(drop=True)
 
 
-def expression_benchmark(expression, stage_markers):
+def expression_benchmark(
+    expression: dict[str, pd.DataFrame],
+    stage_markers: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Score, for each ANISEED gene and stage, the clones where the gene is
     expressed against its in situ clones (set_scores), and rank all clones by
     expression (auroc).
@@ -1891,7 +1977,7 @@ def expression_benchmark(expression, stage_markers):
             "n_truth": len(truth),
         }
         t = expression.get(st)
-        g = t[t["gene"] == gene] if t is not None else []
+        g = t[t["gene"] == gene] if t is not None else pd.DataFrame()
         row["tested"] = len(g) > 0
         if row["tested"]:
             pick = set(g.loc[g["expressed"], "clone"])
@@ -1934,7 +2020,7 @@ def expression_benchmark(expression, stage_markers):
 
 
 # %% Plots
-def plot_stage_umaps(adata, stages, out):
+def plot_stage_umaps(adata: ad.AnnData, stages: list[str], out: str) -> None:
     """Draw each stage's UMAP coloured by its Leiden clusters
     ({out}_{stage}_umap).
 
@@ -1974,7 +2060,12 @@ def plot_stage_umaps(adata, stages, out):
         save(fig, out, f"{st}_umap")
 
 
-def plot_transport_heatmaps(edges, stages, clusters_at, out):
+def plot_transport_heatmaps(
+    edges: pd.DataFrame,
+    stages: list[str],
+    clusters_at: dict[str, list[str]],
+    out: str,
+) -> None:
     """Draw the fwd share between each pair of adjacent stages as a heatmap,
     target clusters ordered by their main source ({out}_transport_{a}_{b}).
 
@@ -2035,7 +2126,13 @@ def plot_transport_heatmaps(edges, stages, clusters_at, out):
         save(fig, out, f"transport_{a}_{b}")
 
 
-def plot_transport_network(nodes, edges, stages, clusters_at, out):
+def plot_transport_network(
+    nodes: pd.DataFrame,
+    edges: pd.DataFrame,
+    stages: list[str],
+    clusters_at: dict[str, list[str]],
+    out: str,
+) -> None:
     """Draw the transport network: clusters in stage columns, grouped and
     coloured by tissue and ordered to reduce crossings, with edges of fwd
     PLOT_MIN_EDGE or more ({out}_transport_network).
@@ -2054,7 +2151,7 @@ def plot_transport_network(nodes, edges, stages, clusters_at, out):
     shown = edges[edges["fwd"] >= PLOT_MIN_EDGE]
     tissue_rank = {t: i for i, t in enumerate(TISSUE_COLORS)}
 
-    def rank(n):
+    def rank(n: str) -> int:
         return tissue_rank.get(nodes.loc[n, "tissue"], len(tissue_rank))
 
     order = {}
@@ -2186,19 +2283,19 @@ def plot_transport_network(nodes, edges, stages, clusters_at, out):
 
 
 def plot_neural_plate(
-    neural_plate,
-    values,
-    label,
-    title,
-    out,
-    name,
-    clusters=None,
-    vmax=None,
-    notes=None,
-    outline=None,
-    outline_label=None,
-    key="name",
-):
+    neural_plate: gpd.GeoDataFrame,
+    values: pd.Series,
+    label: str,
+    title: str,
+    out: str,
+    name: str,
+    clusters: pd.Series | None = None,
+    vmax: float | None = None,
+    notes: pd.Series | None = None,
+    outline: set[str] | None = None,
+    outline_label: str | None = None,
+    key: str = "name",
+) -> None:
     """Draw a neural plate map shaded by one value per cell, with every cell
     labelled ({out}_{name}).
 
@@ -2306,7 +2403,7 @@ def plot_neural_plate(
     save(fig, out, name)
 
 
-def plot_winkley_labels(by_label, out):
+def plot_winkley_labels(by_label: pd.DataFrame, out: str) -> None:
     """Draw the mean precision, recall and score of the midG picks per Winkley
     grid label ({out}_midG_winkley_labels).
 
@@ -2357,7 +2454,12 @@ def plot_winkley_labels(by_label, out):
     save(fig, out, f"{ANCHOR_STAGE}_winkley_labels")
 
 
-def plot_backward(backward, shares, calls, out):
+def plot_backward(
+    backward: pd.DataFrame,
+    shares: pd.DataFrame,
+    calls: pd.DataFrame,
+    out: str,
+) -> None:
     """Draw, per BENCH_GEN stage, each neural plate cluster's log2 label
     enrichment with expected labels boxed ({out}_backward_{st}_enrichment),
     and its expected share against the background
@@ -2470,7 +2572,12 @@ def plot_backward(backward, shares, calls, out):
         save(fig, out, f"backward_{st}_expected")
 
 
-def plot_forward(forward, shares, stages, out):
+def plot_forward(
+    forward: pd.DataFrame,
+    shares: pd.DataFrame,
+    stages: list[str],
+    out: str,
+) -> None:
     """Draw the nervous system share of each midG cluster's descendants per
     stage ({out}_forward_nervous_share) and the mean tissue mix of the neural
     plate clusters' descendants ({out}_forward_tissue_composition).
@@ -2607,7 +2714,10 @@ def plot_forward(forward, shares, stages, out):
     save(fig, out, "forward_tissue_composition")
 
 
-def plot_expression_heatmaps(expression, out):
+def plot_expression_heatmaps(
+    expression: dict[str, pd.DataFrame],
+    out: str,
+) -> None:
     """Draw, per stage, the specificity of each clone's TOP_GENES predicted
     genes across all clones, with a dot where the gene is expressed
     ({out}_{stage}_clone_expression).
@@ -2679,7 +2789,13 @@ def plot_expression_heatmaps(expression, out):
         save(fig, out, f"{st}_clone_expression")
 
 
-def plot_expression_maps(expression, tops, bench, stage_maps, out):
+def plot_expression_maps(
+    expression: dict[str, pd.DataFrame],
+    tops: pd.DataFrame,
+    bench: pd.DataFrame,
+    stage_maps: dict[str, gpd.GeoDataFrame],
+    out: str,
+) -> None:
     """Draw per stage, on that stage's map (the midG map when it has none):
     the number of specific predicted genes per clone, labelled with the top
     one ({out}_{stage}_top_gene_map); and log1p CP10k, on one scale per gene
@@ -2764,7 +2880,7 @@ def plot_expression_maps(expression, tops, bench, stage_maps, out):
             )
 
 
-def plot_expression_benchmark(summary, out):
+def plot_expression_benchmark(summary: pd.DataFrame, out: str) -> None:
     """Draw the mean precision, recall and AUROC of the expression benchmark
     per stage ({out}_expression_benchmark).
 
@@ -2823,14 +2939,14 @@ def plot_expression_benchmark(summary, out):
 
 # %% Pipeline
 def analyze(
-    adata,
-    net,
-    homologs,
-    stage_maps,
-    stage_markers,
-    known_genes,
-    out,
-):
+    adata: ad.AnnData,
+    net: pd.DataFrame,
+    homologs: pd.DataFrame,
+    stage_maps: dict[str, gpd.GeoDataFrame],
+    stage_markers: pd.DataFrame,
+    known_genes: set[str],
+    out: str,
+) -> dict:
     """Run every step on one set of cells, writing each step's tables and
     figures as soon as it finishes, and the cells with their stage clusters,
     per-stage UMAP and np_blastomeres to {out}_lineage.h5ad.
