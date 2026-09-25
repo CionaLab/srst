@@ -1,15 +1,11 @@
 # %% [markdown]
-# Stage-by-stage clusters of the pooled Cao, Sharma and Winkley cells, linked
-# by optimal transport (moscot) from the 64-cell stage to larva. Mid-gastrula
-# clusters are anchored to the ANISEED stage-12 neural plate map (pass_02.tsv)
-# and checked against Winkley's labels at midG, backward to c64 and iniG, and
-# forward against Cao's tissue labels. The whole process runs twice: on all
-# cells, then on the clusters that the transport network places upstream or
-# downstream of the midG neural plate clusters. Genes without ANISEED in situ
-# data are predicted per midG cell and its descendants at midG, earN and latN
-# from the per-stage DE and the transport. Analysis functions return
-# objects; analyze() runs them in order and writes each step's tables and
-# figures as soon as that step finishes.
+# # Neural plate lineage and gene expression in Ciona
+#
+# Cluster each stage, link clusters by optimal transport, anchor midG to the
+# ANISEED stage-12 neural plate, and predict gene expression per neural
+# plate cell at midG, earN and latN from DE and ancestry. ANISEED
+# annotations serve as ground truth. Runs on all cells, then on the neural
+# plate lineage.
 
 # %% Setup
 import re
@@ -46,7 +42,7 @@ STAGE_MAPS = {
     "earN": "npisc/early_neurula.geojson",
     "latN": "npisc/late_neurula.geojson",
 }
-MARKER_STAGES = ["midG"]
+MARKER_STAGES = ["midG", "earN", "latN"]
 
 BATCH_KEY = "source"
 STAGE_KEY = "stage"
@@ -594,27 +590,51 @@ def write_csv(
 
 # %% Inputs
 def load_territory_net() -> pd.DataFrame:
-    """Read the MARKER_STAGES rows of MARKERS as a decoupler network.
-    Territories with the same gene set become one source named like
-    "a9.35/a9.36/a9.39/a9.40".
+    """Read the MARKERS rows of every stage in MARKER_STAGES, with the gene in
+    KY21 IDs and the territory with the "*" of right-side cells dropped.
 
-    :returns: Columns "source" (territory), "target" (KY21 gene) and "weight"
-        (1).
+    :returns: One row per annotation: "stage", "gene" (KY21 ID, NaN when
+        unmapped), "aniseed" (ANISEED gene name) and "territory".
     :rtype: pandas.DataFrame
     :raises ValueError: A MARKER_STAGES label is not in MARKERS.
     """
     kh2ky = pd.read_csv(GENE_MAP, sep="\t").set_index("KH2012")["KY2021"]
     mk = pd.read_csv(MARKERS, sep="\t")
-    labels = [EXPRESSION_STAGES[st] for st in MARKER_STAGES]
-    missing = sorted(set(labels) - set(mk["Stage"]))
+    stage_of = {EXPRESSION_STAGES[st]: st for st in MARKER_STAGES}
+    missing = sorted(set(stage_of) - set(mk["Stage"]))
     if missing:
         raise ValueError(
             f"{MARKERS} has no rows for {missing}; "
             f"its stages are {sorted(mk['Stage'].unique())}",
         )
-    mk = mk[mk["Stage"].isin(labels)].copy()
-    mk["gene"] = mk["Gene"].str.extract(r"KH2012:(\S+)")[0].map(kh2ky)
-    mk["territory"] = mk["Territory_eq"].str.rstrip("*")
+    mk = mk[mk["Stage"].isin(stage_of)]
+    markers = pd.DataFrame(
+        {
+            "stage": mk["Stage"].map(stage_of),
+            "gene": mk["Gene"].str.extract(r"KH2012:(\S+)")[0].map(kh2ky),
+            "aniseed": mk["Gene"].str.extract(r"\(([^()]*)\)\s*$")[0],
+            "territory": mk["Territory_eq"].str.rstrip("*"),
+        },
+    )
+    print(
+        "ANISEED annotations per stage:",
+        markers["stage"].value_counts().to_dict(),
+    )
+    return markers
+
+
+def anchor_net(markers: pd.DataFrame) -> pd.DataFrame:
+    """Build the decoupler network of the ANCHOR_STAGE territories, the only
+    stage with enough markers to anchor on. Territories with the same gene
+    set become one source named like "a9.35/a9.36/a9.39/a9.40".
+
+    :param markers: Annotations from load_territory_net.
+    :type markers: pandas.DataFrame
+    :returns: Columns "source" (territory), "target" (KY21 gene) and "weight"
+        (1).
+    :rtype: pandas.DataFrame
+    """
+    mk = markers[markers["stage"] == ANCHOR_STAGE]
     sets = mk.groupby("territory")["gene"].apply(frozenset)
     merged = sets.groupby(sets).transform(lambda t: "/".join(sorted(t.index)))
     print(
@@ -629,32 +649,27 @@ def load_territory_net() -> pd.DataFrame:
     )
 
 
-def load_stage_markers() -> pd.DataFrame:
-    """Read the MARKER_STAGES rows of MARKERS for the expression benchmark.
+def ground_truth(markers: pd.DataFrame) -> pd.DataFrame:
+    """Collect the in situ pattern of each gene at each stage as the midG
+    neural plate cells (clones) the annotated cells descend from. Only used
+    to check predictions, never to make them.
 
+    :param markers: Annotations from load_territory_net.
+    :type markers: pandas.DataFrame
     :returns: One row per stage and KY21 gene: "aniseed" (ANISEED gene name),
         "truth" (NP_GRID cells at generation 9 covering the annotated cells)
         and "cells" (annotated cells).
     :rtype: pandas.DataFrame
-    :raises ValueError: A MARKER_STAGES label is not in MARKERS.
     """
-    kh2ky = pd.read_csv(GENE_MAP, sep="\t").set_index("KH2012")["KY2021"]
     gen = IDENTITY_GEN[ANCHOR_STAGE]
-    mk = pd.read_csv(MARKERS, sep="\t")
-    stage_of = {EXPRESSION_STAGES[st]: st for st in MARKER_STAGES}
-    missing = sorted(set(stage_of) - set(mk["Stage"]))
-    if missing:
-        raise ValueError(f"{MARKERS} has no rows for {missing}")
-    mk = mk[mk["Stage"].isin(stage_of)].copy()
-    mk["stage"] = mk["Stage"].map(stage_of)
-    mk["gene"] = mk["Gene"].str.extract(r"KH2012:(\S+)")[0].map(kh2ky)
-    mk["aniseed"] = mk["Gene"].str.extract(r"\(([^()]*)\)\s*$")[0]
-    mk["cell"] = mk["Territory_eq"].str.rstrip("*")
-    mk["clone"] = mk["cell"].map(
-        lambda t: sorted(to_generation(t, gen) & set(NP_GRID)),
+    mk = markers.rename(columns={"territory": "cell"})
+    mk = mk.assign(
+        clone=mk["cell"].map(
+            lambda t: sorted(to_generation(t, gen) & set(NP_GRID)),
+        ),
     )
     mk = mk.explode("clone").dropna(subset=["gene", "clone"])
-    markers = (
+    truth = (
         mk.groupby(["stage", "gene"])
         .agg(
             aniseed=("aniseed", "first"),
@@ -665,9 +680,9 @@ def load_stage_markers() -> pd.DataFrame:
     )
     print(
         "ANISEED genes per stage:",
-        markers["stage"].value_counts().to_dict(),
+        truth["stage"].value_counts().to_dict(),
     )
-    return markers
+    return truth
 
 
 def load_known_genes() -> set[str]:
@@ -1094,7 +1109,7 @@ def anchor_clusters(
 
     :param adata: Cells with stage_cluster and raw counts.
     :type adata: anndata.AnnData
-    :param net: Territory network from load_territory_net.
+    :param net: Territory network from anchor_net.
     :type net: pandas.DataFrame
     :param nodes: Per-cluster table from cluster_table.
     :type nodes: pandas.DataFrame
@@ -1868,6 +1883,63 @@ def clone_expression(
     return table
 
 
+def clone_clusters(
+    shares: dict[str, pd.DataFrame],
+    nodes: pd.DataFrame,
+    stage_maps: dict[str, gpd.GeoDataFrame],
+) -> pd.DataFrame:
+    """Place the clusters of each stage after ANCHOR_STAGE on the neural
+    plate by ancestry: spread each midG clone's cells over the stage's
+    clusters by share x cluster size and rank the clusters per clone.
+
+    :param shares: Clone shares per stage, from clone_shares.
+    :type shares: dict[str, pandas.DataFrame]
+    :param nodes: Per-cluster table from cluster_table.
+    :type nodes: pandas.DataFrame
+    :param stage_maps: Neural plate maps from load_stage_maps.
+    :type stage_maps: dict[str, geopandas.GeoDataFrame]
+    :returns: One row per stage, clone and cluster, keeping the top cluster
+        and any other with MIN_SHOW or more of the clone: descendants (map
+        cells), rank, stage_cluster, clone_share (share of the clone's cells
+        in the cluster), cluster_share (share of the cluster's cells from
+        the clone), n_cells and tissue.
+    :rtype: pandas.DataFrame
+    """
+    tables = []
+    for st, share in shares.items():
+        if st == ANCHOR_STAGE or not share.shape[1]:
+            continue
+        size = nodes.loc[share.index, "n_cells"].astype(float)
+        cells = share.mul(size, axis=0)
+        cells = cells.loc[:, cells.sum() > 0]
+        comp = cells / cells.sum()
+        t = pd.DataFrame(
+            {
+                "clone_share": comp.stack(future_stack=True),
+                "cluster_share": share[comp.columns].stack(future_stack=True),
+            },
+        )
+        t = t.rename_axis(["stage_cluster", "clone"]).reset_index()
+        t = t[t["clone_share"] > 0]
+        order = {b: i for i, b in enumerate(comp.columns)}
+        t = t.assign(o=t["clone"].map(order)).sort_values(
+            ["o", "clone_share", "stage_cluster"],
+            ascending=[True, False, True],
+        )
+        t["rank"] = t.groupby("clone", sort=False).cumcount() + 1
+        t = t[(t["rank"] == 1) | (t["clone_share"] >= MIN_SHOW)]
+        names = {b: join_names(map_cells(b, st, stage_maps)) for b in order}
+        t["stage"] = st
+        t["descendants"] = t["clone"].map(names)
+        tables.append(t.drop(columns="o"))
+    if not tables:
+        return pd.DataFrame()
+    table = pd.concat(tables, ignore_index=True)
+    table = table.join(nodes[["n_cells", "tissue"]], on="stage_cluster")
+    front = ["stage", "clone", "descendants", "rank", "stage_cluster"]
+    return table[front + [c for c in table if c not in front]]
+
+
 def predict_expression(
     de: dict[str, pd.DataFrame],
     shares: dict[str, pd.DataFrame],
@@ -1958,7 +2030,7 @@ def expression_benchmark(
 
     :param expression: Clone expression per stage, from predict_expression.
     :type expression: dict[str, pandas.DataFrame]
-    :param stage_markers: ANISEED genes from load_stage_markers.
+    :param stage_markers: ANISEED genes from ground_truth.
     :type stage_markers: pandas.DataFrame
     :returns: Per-gene scores, and per-stage means with midG flagged circular
         because these genes anchored the clusters.
@@ -2311,7 +2383,7 @@ def plot_neural_plate(
     :type out: str
     :param name: File name suffix.
     :type name: str
-    :param clusters: Cluster to number under each cell name, indexed by name.
+    :param clusters: Cluster to number under each cell name, indexed by key.
     :type clusters: pandas.Series or None
     :param vmax: Top of the colour scale.
     :type vmax: float or None
@@ -2329,7 +2401,7 @@ def plot_neural_plate(
     gdf = neural_plate.join(values.rename("value"), on=key)
     second = pd.Series(None, index=gdf.index, dtype=object)
     if clusters is not None:
-        cl = gdf["name"].map(clusters)
+        cl = gdf[key].map(clusters)
         second = cl.map(lambda c: str(num(c)) if isinstance(c, str) else None)
     elif notes is not None:
         second = gdf[key].map(notes)
@@ -2714,6 +2786,40 @@ def plot_forward(
     save(fig, out, "forward_tissue_composition")
 
 
+def plot_clone_clusters(
+    table: pd.DataFrame,
+    stage_maps: dict[str, gpd.GeoDataFrame],
+    out: str,
+) -> None:
+    """Draw, per stage after ANCHOR_STAGE on that stage's map, the top
+    cluster of each midG clone numbered in its cells and shaded by the share
+    of the clone's cells in it ({out}_{stage}_clone_cluster_map).
+
+    :param table: Ranked clusters per clone, from clone_clusters.
+    :type table: pandas.DataFrame
+    :param stage_maps: Neural plate maps from load_stage_maps.
+    :type stage_maps: dict[str, geopandas.GeoDataFrame]
+    :param out: Output file prefix.
+    :type out: str
+    """
+    if not len(table):
+        return
+    for st, t in table.groupby("stage", sort=False):
+        first = t[t["rank"] == 1].set_index("clone")
+        title = f"Top {st} cluster for each {ANCHOR_STAGE} clone"
+        plot_neural_plate(
+            stage_maps.get(st, stage_maps[ANCHOR_STAGE]),
+            first["clone_share"],
+            "share of the clone's cells in the cluster",
+            title,
+            out,
+            f"{st}_clone_cluster_map",
+            clusters=first["stage_cluster"],
+            vmax=1,
+            key="clone",
+        )
+
+
 def plot_expression_heatmaps(
     expression: dict[str, pd.DataFrame],
     out: str,
@@ -2953,13 +3059,13 @@ def analyze(
 
     :param adata: Cells; modified in place.
     :type adata: anndata.AnnData
-    :param net: Territory network from load_territory_net.
+    :param net: Territory network from anchor_net.
     :type net: pandas.DataFrame
     :param homologs: Homologs from load_homologs.
     :type homologs: pandas.DataFrame
     :param stage_maps: Neural plate maps from load_stage_maps.
     :type stage_maps: dict[str, geopandas.GeoDataFrame]
-    :param stage_markers: ANISEED genes from load_stage_markers.
+    :param stage_markers: ANISEED genes from ground_truth.
     :type stage_markers: pandas.DataFrame
     :param known_genes: Genes with ANISEED in situ data.
     :type known_genes: set[str]
@@ -3058,6 +3164,14 @@ def analyze(
     for st, share in res["clone_shares"].items():
         write_csv(share, out, f"{st}_clone_shares")
 
+    res["clone_clusters"] = clone_clusters(
+        res["clone_shares"],
+        nodes,
+        stage_maps,
+    )
+    write_csv(res["clone_clusters"], out, "clone_clusters", index=False)
+    plot_clone_clusters(res["clone_clusters"], stage_maps, out)
+
     res["expression"] = predict_expression(
         res["de"],
         res["clone_shares"],
@@ -3127,10 +3241,11 @@ def analyze(
 
 
 # %% All cells
-net = load_territory_net()
+markers = load_territory_net()
+net = anchor_net(markers)
 homologs = load_homologs()
 stage_maps = load_stage_maps()
-stage_markers = load_stage_markers()
+stage_markers = ground_truth(markers)
 known_genes = load_known_genes()
 adata = sc.read_h5ad(f"{PREFIX}_{GENOME}.h5ad")
 adata = adata[adata.obs[STAGE_KEY].isin(CHAIN).to_numpy()].copy()
