@@ -33,8 +33,12 @@ SCVI_MODEL = "integrated_ky21_SCVI"
 MARKERS = "npisc/pass_02.tsv"
 GENE_MAP = "npisc/kh2012_ky2021_map.tsv"
 HOMOLOGS = "npisc/ky2021_swissprot_map.csv"
-ANCHOR_MAP = "npisc/mid_gastrula.geojson"
-MARKER_STAGES = ["Stage 12 (mid gastrula)"]
+STAGE_MAPS = {
+    "midG": "npisc/mid_gastrula.geojson",
+    "earN": "npisc/early_neurula.geojson",
+    "latN": "npisc/late_neurula.geojson",
+}
+MARKER_STAGES = ["midG"]
 
 BATCH_KEY = "source"
 STAGE_KEY = "stage"
@@ -60,10 +64,12 @@ CHAIN = [
     "larva",
 ]
 ANCHOR_STAGE = "midG"
-BENCH_GEN = {"c64": 7, "iniG": 8}
+BENCH_GEN = {
+    "c64": 7,
+    "iniG": 8,
+}
 
-RESOLUTION = 1.0
-RESOLUTION_BY_STAGE = {"midG": 2.0}
+RESOLUTION = 2.0
 MIN_CLUSTER = 20
 DE_DELTA = 0.25
 DE_FDR = 0.05
@@ -78,10 +84,32 @@ OT_BATCH = 1024
 MIN_EDGE = 0.05
 MIN_SHOW = 0.05
 PLOT_MIN_EDGE = 0.1
-IDENTITY_GEN = {"midG": 9, "earN": 10, "latN": 11}
+IDENTITY_GEN = {
+    "midG": 9,
+    "earN": 10,
+    "latN": 10,
+}
 LINEAGE_MIN = 0.5
+# ANISEED stage labels in MARKERS for the internal stage names
+EXPRESSION_STAGES = {
+    "midG": "Stage 12 (mid gastrula)",
+    "earN": "Stage 14 (early neurula)",
+    "latN": "Stage 16 (late neurula)",
+}
+EXPRESSED_MIN = 0.5
+SPECIFIC_MIN = 1.0
+TOP_GENES = 3
+MAP_PER_CLONE = 1
+MAP_GENES = []
 DPI = 300
-METRICS = ["precision", "recall", "jaccard", "bits", "score", "gain"]
+METRICS = [
+    "precision",
+    "recall",
+    "jaccard",
+    "bits",
+    "score",
+    "gain",
+]
 TISSUE_COLORS = {
     "nervous system": "#2a78d6",
     "epidermis": "#eb6834",
@@ -97,10 +125,20 @@ MUTED = "#52514e"
 GRID = "#e1e0d9"
 AXIS = "#c3c2b7"
 SURFACE = "#fcfcfb"
-SERIES = ["#2a78d6", "#eb6834", "#1baf7a"]
+SERIES = [
+    "#2a78d6",
+    "#eb6834",
+    "#1baf7a",
+]
 DIVERGING = LinearSegmentedColormap.from_list(
     "diverging",
-    ["#184f95", "#86b6ef", "#f0efec", "#ef9a99", "#b8302f"],
+    [
+        "#184f95",
+        "#86b6ef",
+        "#f0efec",
+        "#ef9a99",
+        "#b8302f",
+    ],
 )
 
 NP_GRID = {
@@ -134,6 +172,14 @@ WINKLEY_EARLY = {
     "Neural (A) C3/4": "A8.15/A8.16",
 }
 BLASTOMERE_RE = re.compile(r"\b([AaBb])(\d+)\.(\d+)\b")
+GRID_ROWS = [
+    "I",
+    "II",
+    "III",
+    "IV",
+    "V",
+    "VI",
+]
 
 
 # %% Helpers
@@ -241,6 +287,84 @@ def fmt(weights, keep=None):
     return ",".join(f"{k}:{v:.2f}" for k, v in items)
 
 
+def blastomere_key(b):
+    """Sort key for blastomere names: line, then cell number."""
+    return b[0], int(b.split(".")[1])
+
+
+def grid_key(b):
+    """Sort key for neural plate cells: grid row I to VI, then column."""
+    row, col = NP_GRID[b]
+    return GRID_ROWS.index(row), col
+
+
+NP_ORDER = sorted(NP_GRID, key=grid_key)
+
+
+def generation_of(b):
+    """Generation of a blastomere name: 10 for A10.29."""
+    return int(b.split(".")[0][1:])
+
+
+def covered(name, cells):
+    """Whether a blastomere is one of the cells, or an ancestor or a
+    descendant of one of them."""
+    gen = generation_of(name)
+    return any(name in to_generation(c, gen) for c in cells)
+
+
+def map_cells(b, st, stage_maps):
+    """Cells on the stage's map that are b or descend from it: the gen-10
+    daughters where the map has them, b itself where it has not divided.
+    Without a map, or with none of them on it, b's cells at
+    IDENTITY_GEN."""
+    m = stage_maps.get(st)
+    if m is not None:
+        g = generation_of(b)
+        cells = set()
+        for n in m["name"]:
+            if generation_of(n) >= g and b in to_generation(n, g):
+                cells.add(n)
+        if cells:
+            return cells
+    return to_generation(b, IDENTITY_GEN[st])
+
+
+def join_names(names):
+    """Blastomere names as "A10.29/A10.30", in cell-number order."""
+    return "/".join(sorted(names, key=blastomere_key))
+
+
+def auroc(score, positive):
+    """Chance that a positive item outscores a negative one, ties counting
+    half. NaN unless both classes are present."""
+    positive = np.asarray(positive, dtype=bool)
+    n1, n0 = positive.sum(), (~positive).sum()
+    if not n1 or not n0:
+        return np.nan
+    ranks = pd.Series(np.asarray(score, dtype=float)).rank().to_numpy()
+    return (ranks[positive].sum() - n1 * (n1 + 1) / 2) / (n1 * n0)
+
+
+def short_name(name):
+    """A gene name without its parenthesised part: "Ptf1a-r (PTF1A)" becomes
+    "Ptf1a-r"."""
+    return re.sub(r"\s*\([^()]*\)", "", str(name)).strip()
+
+
+def gene_label(row):
+    """A gene's name without its parenthesised part, or its KY21 ID when it
+    has no name."""
+    name = row.get("gene_name")
+    name = short_name(name) if isinstance(name, str) and name else ""
+    return name or row["gene"]
+
+
+def file_safe(text):
+    """Text usable in a file name."""
+    return re.sub(r"[^\w.-]+", "_", str(text))
+
+
 def style(ax, grid_axis="y"):
     """Recessive axes, muted ticks and a hairline grid."""
     ax.set_facecolor(SURFACE)
@@ -278,7 +402,14 @@ def load_territory_net():
     """
     kh2ky = pd.read_csv(GENE_MAP, sep="\t").set_index("KH2012")["KY2021"]
     mk = pd.read_csv(MARKERS, sep="\t")
-    mk = mk[mk["Stage"].isin(MARKER_STAGES)]
+    labels = [EXPRESSION_STAGES[st] for st in MARKER_STAGES]
+    missing = sorted(set(labels) - set(mk["Stage"]))
+    if missing:
+        raise ValueError(
+            f"{MARKERS} has no rows for {missing}; "
+            f"its stages are {sorted(mk['Stage'].unique())}",
+        )
+    mk = mk[mk["Stage"].isin(labels)].copy()
     mk["gene"] = mk["Gene"].str.extract(r"KH2012:(\S+)")[0].map(kh2ky)
     mk["territory"] = mk["Territory_eq"].str.rstrip("*")
     sets = mk.groupby("territory")["gene"].apply(frozenset)
@@ -295,6 +426,58 @@ def load_territory_net():
     )
 
 
+def load_stage_markers():
+    """ANISEED in situ territories at the MARKER_STAGES, in KY21 gene IDs.
+
+    Only the anchoring stage is read: the earN and latN annotations are too
+    sparse and inconsistent to check predictions at a finer resolution than
+    theirs. Each territory becomes the midG neural plate cells whose clones
+    contain it. Returns one row per stage and gene with the set of clones
+    ("truth") and of annotated cells ("cells")."""
+    kh2ky = pd.read_csv(GENE_MAP, sep="\t").set_index("KH2012")["KY2021"]
+    gen = IDENTITY_GEN[ANCHOR_STAGE]
+    mk = pd.read_csv(MARKERS, sep="\t")
+    stage_of = {EXPRESSION_STAGES[st]: st for st in MARKER_STAGES}
+    missing = sorted(set(stage_of) - set(mk["Stage"]))
+    if missing:
+        raise ValueError(f"{MARKERS} has no rows for {missing}")
+    mk = mk[mk["Stage"].isin(stage_of)].copy()
+    mk["stage"] = mk["Stage"].map(stage_of)
+    mk["gene"] = mk["Gene"].str.extract(r"KH2012:(\S+)")[0].map(kh2ky)
+    mk["aniseed"] = mk["Gene"].str.extract(r"\(([^()]*)\)\s*$")[0]
+    mk["cell"] = mk["Territory_eq"].str.rstrip("*")
+    mk["clone"] = mk["cell"].map(
+        lambda t: sorted(to_generation(t, gen) & set(NP_GRID)),
+    )
+    mk = mk.explode("clone").dropna(subset=["gene", "clone"])
+    markers = (
+        mk.groupby(["stage", "gene"])
+        .agg(
+            aniseed=("aniseed", "first"),
+            truth=("clone", set),
+            cells=("cell", set),
+        )
+        .reset_index()
+    )
+    print(
+        "ANISEED genes per stage:",
+        markers["stage"].value_counts().to_dict(),
+    )
+    return markers
+
+
+def load_known_genes():
+    """KY21 IDs of every gene in MARKERS at any stage. Their in situ
+    patterns are known, so they serve as ground truth and are left out of
+    the predicted genes."""
+    kh2ky = pd.read_csv(GENE_MAP, sep="\t").set_index("KH2012")["KY2021"]
+    mk = pd.read_csv(MARKERS, sep="\t")
+    kh = mk["Gene"].str.extract(r"KH2012:(\S+)")[0]
+    known = set(kh.map(kh2ky).dropna())
+    print(f"{len(known)} genes with ANISEED in situ data")
+    return known
+
+
 def load_homologs():
     """SwissProt homolog of each KY21 gene, with evidence tags removed."""
     homologs = pd.read_csv(HOMOLOGS).set_index("KY2021")
@@ -306,12 +489,19 @@ def load_homologs():
     return homologs[["KH2012", "uniprot", "homolog"]]
 
 
-def load_neural_plate():
-    """Mid-gastrula neural plate cells as polygons, left and right sides named
-    alike."""
-    neural_plate = gpd.read_file(ANCHOR_MAP)
-    neural_plate["name"] = neural_plate["name"].str.rstrip("*")
-    return neural_plate
+def load_stage_maps():
+    """Neural plate maps of the stages in STAGE_MAPS as polygons, left and
+    right sides named alike. "clone" is the midG cell each cell descends
+    from. Returns {stage: GeoDataFrame}."""
+    gen = IDENTITY_GEN[ANCHOR_STAGE]
+    maps = {}
+    for st, path in STAGE_MAPS.items():
+        m = gpd.read_file(path)
+        m["name"] = m["name"].str.rstrip("*")
+        clones = [join_names(to_generation(b, gen)) for b in m["name"]]
+        m["clone"] = clones
+        maps[st] = m
+    return maps
 
 
 # %% Clusters per stage
@@ -341,7 +531,7 @@ def cluster_stages(adata, stages):
         sc.pp.neighbors(adata_sub, use_rep=LATENT_KEY)
         sc.tl.leiden(
             adata_sub,
-            resolution=RESOLUTION_BY_STAGE.get(st, RESOLUTION),
+            resolution=RESOLUTION,
             flavor="igraph",
             n_iterations=-1,
             directed=False,
@@ -432,9 +622,19 @@ def differential_expression(adata, stages, homologs):
                 use_raw=False,
             )
             r = sc.get.rank_genes_groups_df(s_cells, group=groups).rename(
-                columns={"group": "stage_cluster", "names": "gene"},
+                columns={
+                    "group": "stage_cluster",
+                    "names": "gene",
+                },
             )
-            r = r[["stage_cluster", "gene", "logfoldchanges", "pvals_adj"]]
+            r = r[
+                [
+                    "stage_cluster",
+                    "gene",
+                    "logfoldchanges",
+                    "pvals_adj",
+                ]
+            ]
             r = r.rename(
                 columns={
                     "logfoldchanges": f"lfc_{src}",
@@ -776,12 +976,21 @@ def winkley_midg_benchmark(adata, cluster_pick, best):
     return wl, by_label, by_blastomere, summary
 
 
-def predict_identities(edges, cluster_pick, clusters_at, nodes, stages):
-    """Carry midG blastomere sets to the stages in IDENTITY_GEN.
+def predict_identities(
+    edges,
+    cluster_pick,
+    clusters_at,
+    nodes,
+    stages,
+    stage_maps,
+):
+    """Carry midG blastomere sets to the later stages in IDENTITY_GEN.
 
     Each cluster takes its parents' blastomeres in proportion to the backward
-    share of each edge, and every blastomere splits into its daughters.
-    Returns one row per cluster at those stages and each cluster's identity.
+    share of each edge. Every blastomere becomes its cells on that stage's
+    map (map_cells): its gen-10 daughters where the map has them, itself
+    where it has not divided. Returns one row per cluster at those stages and
+    each cluster's identity.
     """
     anchor_gen = IDENTITY_GEN[ANCHOR_STAGE]
     identity = {}
@@ -793,13 +1002,13 @@ def predict_identities(edges, cluster_pick, clusters_at, nodes, stages):
     i0 = stages.index(ANCHOR_STAGE)
     later = [s for s in stages[i0 + 1 :] if s in IDENTITY_GEN]
     for st in later:
-        gen = IDENTITY_GEN[st]
         nxt = {}
         step = edges_between(edges, list(identity), clusters_at[st])
         for rec in step.to_dict("records"):
             weights = nxt.setdefault(rec["to"], {})
             for b, w in identity[rec["from"]].items():
-                kids = sorted(to_generation(b, gen))
+                kids = map_cells(b, st, stage_maps)
+                kids = sorted(kids, key=blastomere_key)
                 for d in kids:
                     add = rec["bwd"] * w / len(kids)
                     weights[d] = weights.get(d, 0.0) + add
@@ -812,25 +1021,25 @@ def predict_identities(edges, cluster_pick, clusters_at, nodes, stages):
                 anc[a] = anc.get(a, 0.0) + v
             kept = {a for a, v in anc.items() if v >= MIN_SHOW}
             top = max(sorted(anc), key=anc.get) if anc else ""
-            kids = sorted(to_generation(top, gen)) if top else []
-            predicted = "/".join(kids)
+            kids = map_cells(top, st, stage_maps) if top else set()
             keep = {d for d in w if to_generation(d, anchor_gen) & kept}
             rows.append(
                 {
                     "stage_cluster": n,
                     "stage": st,
-                    "generation": gen,
+                    "generation": max(map(generation_of, kids), default=None),
                     "tissue": nodes.loc[n, "tissue"],
                     "assigned_share": sum(w.values()),
                     "top_ancestor": top,
                     "top_ancestor_share": anc.get(top, 0.0),
-                    "predicted": predicted,
+                    "predicted": join_names(kids),
                     "ancestors": fmt(anc),
                     "identities": fmt(w, keep=keep),
                 },
             )
-            node_identity[n] = predicted
+            node_identity[n] = join_names(kids)
     identities = pd.DataFrame(rows).set_index("stage_cluster")
+    identities["generation"] = identities["generation"].astype("Int64")
     node_identity = pd.Series(node_identity).reindex(nodes.index).fillna("")
     return identities, node_identity
 
@@ -1094,7 +1303,245 @@ def neural_plate_lineage(edges, stages, clusters_at, neural_clusters, nodes):
     return table
 
 
-def analyze(adata, net, homologs, neural_plate):
+# %% Expression by blastomere
+def clone_shares(edges, cluster_pick, clusters_at, stages):
+    """Share of each cluster's cells descending from each midG neural plate
+    cell, at the anchor stage and the later stages in IDENTITY_GEN.
+
+    midG clusters split evenly over their blastomere set. Later clusters take
+    their parents' shares weighted by the backward share of each edge, as in
+    predict_identities. Sister cells always get equal shares, so a midG cell
+    and its clone of descendants is the finest unit. Returns {stage:
+    DataFrame of clusters x clones}."""
+    share = {}
+    for c, bs in cluster_pick.items():
+        if bs:
+            share[c] = {b: 1 / len(bs) for b in bs}
+    out = {ANCHOR_STAGE: share}
+    i0 = stages.index(ANCHOR_STAGE)
+    later = [s for s in stages[i0 + 1 :] if s in IDENTITY_GEN]
+    for st in later:
+        nxt = {}
+        step = edges_between(edges, list(share), clusters_at[st])
+        for rec in step.to_dict("records"):
+            weights = nxt.setdefault(rec["to"], {})
+            for b, w in share[rec["from"]].items():
+                weights[b] = weights.get(b, 0.0) + rec["bwd"] * w
+        share = out[st] = nxt
+    tables = {}
+    for st, s in out.items():
+        t = pd.DataFrame.from_dict(s, orient="index").fillna(0.0)
+        rows = sorted(t.index, key=num)
+        extra = sorted(set(t) - set(NP_ORDER))
+        cols = [b for b in NP_ORDER if b in t] + extra
+        tables[st] = t.loc[rows, cols].rename_axis("stage_cluster")
+    return tables
+
+
+def clone_expression(de, share, nodes, stage, cells_of=None):
+    """Expected expression of every gene in each midG clone at one stage.
+
+    A clone's cells spread over the stage's clusters in proportion to share
+    times cluster size. Per gene and clone, averaged over that spread:
+    scVI normalized expression (expression, and as log1p CP10k), the share
+    of cells with a count (detection), the log fold change, and support, the
+    share of the clone's cells in clusters where scVI calls the gene up
+    against the stage's other clusters (replicated_support uses the
+    per-source check instead). A gene is expressed in a clone at support
+    EXPRESSED_MIN, and specific when also SPECIFIC_MIN log2 above its mean
+    over the clones. "descendants" lists each clone's cells from cells_of
+    ({clone: cell names}, from the stage map) or, without it, from
+    IDENTITY_GEN. Returns one row per gene and clone."""
+    tested = sorted(set(de["stage_cluster"]) & set(share.index), key=num)
+    size = nodes.loc[tested, "n_cells"].astype(float)
+    cells = share.loc[tested].mul(size, axis=0)
+    cells = cells.loc[:, cells.sum() > 0]
+    comp = cells / cells.sum()
+    d = de[de["stage_cluster"].isin(tested)]
+    up = d[IS_DE].astype(bool) & (d["lfc_mean"] > 0)
+    d = d.assign(
+        up=up.astype(float),
+        up_replicated=(up & d["replicated"].astype(bool)).astype(float),
+    )
+
+    def per_clone(col):
+        m = d.pivot(index="gene", columns="stage_cluster", values=col)
+        return m.reindex(columns=comp.index).fillna(0.0) @ comp
+
+    expression = per_clone("scale1")
+    mean = expression.mean(axis=1)
+    ratio = expression.div(mean.where(mean > 0), axis=0)
+    matrices = {
+        "support": per_clone("up"),
+        "replicated_support": per_clone("up_replicated"),
+        "expression": expression,
+        "log_cp10k": np.log1p(expression * 1e4),
+        "detection": per_clone("non_zeros_proportion1"),
+        "lfc": per_clone("lfc_mean"),
+        "specificity": np.log2(ratio),
+    }
+    table = pd.DataFrame(
+        {k: m.stack(future_stack=True) for k, m in matrices.items()},
+    )
+    table = table.rename_axis(["gene", "clone"]).reset_index()
+    table["expressed"] = table["support"] >= EXPRESSED_MIN
+    specific = table["specificity"] >= SPECIFIC_MIN
+    table["specific"] = table["expressed"] & specific
+    by_gene = table.groupby("gene")
+    table["n_clones"] = by_gene["expressed"].transform("sum")
+    table["n_specific"] = by_gene["specific"].transform("sum")
+
+    if cells_of is None:
+        gen = IDENTITY_GEN[stage]
+        cells_of = {b: to_generation(b, gen) for b in comp}
+    descendants = {b: join_names(cells_of.get(b, ())) for b in comp}
+    table["stage"] = stage
+    table["descendants"] = table["clone"].map(descendants)
+    table["clone_cells"] = table["clone"].map(cells.sum())
+    columns = ["gene_name", "KH2012", "uniprot", "homolog"]
+    info = [c for c in columns if c in de]
+    ann = de.drop_duplicates("gene").set_index("gene")[info]
+    table = table.join(ann, on="gene")
+    front = ["stage", "clone", "descendants", "clone_cells"]
+    front += ["gene"] + info
+    table = table[front + [c for c in table if c not in front]]
+    order = {b: i for i, b in enumerate(comp.columns)}
+    table = (
+        table.assign(order=table["clone"].map(order))
+        .sort_values(
+            ["order", "specific", "specificity", "gene"],
+            ascending=[True, False, False, True],
+        )
+        .drop(columns="order")
+        .reset_index(drop=True)
+    )
+    return table
+
+
+def predict_expression(de, shares, nodes, stage_maps, known_genes):
+    """clone_expression at every stage with both DE results and clone
+    shares, naming descendants from the stage maps. "known" flags genes
+    with ANISEED in situ data. Returns {stage: table}."""
+    results = {}
+    for st, share in shares.items():
+        if st not in de or not share.shape[1]:
+            continue
+        cells_of = {b: map_cells(b, st, stage_maps) for b in share}
+        t = results[st] = clone_expression(
+            de[st],
+            share,
+            nodes,
+            st,
+            cells_of,
+        )
+        known = t["gene"].isin(known_genes)
+        t.insert(t.columns.get_loc("support"), "known", known)
+        per_gene = t.drop_duplicates("gene")
+        print(
+            f"{st}: {t['clone'].nunique()} clones, "
+            f"{(per_gene['n_clones'] > 0).sum()} genes expressed in at "
+            f"least one, {(per_gene['n_specific'] > 0).sum()} specific",
+        )
+    return results
+
+
+def top_genes(expression):
+    """The TOP_GENES most specific genes of each clone at each stage, among
+    genes without ANISEED in situ data: the predictions."""
+    tops = []
+    for t in expression.values():
+        t = t[t["specific"] & ~t["known"]].sort_values(
+            ["specificity", "gene"],
+            ascending=[False, True],
+        )
+        top = t.groupby("clone", sort=False).head(TOP_GENES).copy()
+        rank = top.groupby("clone", sort=False).cumcount() + 1
+        top.insert(4, "rank", rank)
+        tops.append(top)
+    if not tops:
+        return pd.DataFrame()
+    table = pd.concat(tops, ignore_index=True)
+    order = {b: i for i, b in enumerate(NP_ORDER)}
+    stage_order = {s: i for i, s in enumerate(CHAIN)}
+    table = table.assign(
+        s=table["stage"].map(stage_order),
+        c=table["clone"].map(order),
+    )
+    table = table.sort_values(["s", "c", "rank"]).drop(columns=["s", "c"])
+    return table.reset_index(drop=True)
+
+
+def expression_benchmark(expression, stage_markers):
+    """Predicted clones of each ANISEED gene against its in situ clones.
+
+    The expressed clones are scored with set_scores, and all clones ranked
+    by expected expression give an AUROC (chance that a clone in the in situ
+    pattern outranks one outside it). midG is circular: the stage-12
+    annotations placed the clusters. Returns the per-gene table and the
+    per-stage means."""
+    rows = []
+    for rec in stage_markers.to_dict("records"):
+        st, gene, truth = rec["stage"], rec["gene"], rec["truth"]
+        row = {
+            "stage": st,
+            "gene": gene,
+            "aniseed": rec["aniseed"],
+            "homolog": None,
+            "cells": join_names(rec["cells"]),
+            "truth": join_names(truth),
+            "n_truth": len(truth),
+        }
+        t = expression.get(st)
+        g = t[t["gene"] == gene] if t is not None else []
+        row["tested"] = len(g) > 0
+        if row["tested"]:
+            pick = set(g.loc[g["expressed"], "clone"])
+            row["predicted"] = join_names(pick)
+            row["n_predicted"] = len(pick)
+            row.update(set_scores(pick, truth))
+            row["auroc"] = auroc(g["expression"], g["clone"].isin(truth))
+            row["homolog"] = g["homolog"].iloc[0] if "homolog" in g else None
+        rows.append(row)
+    bench = pd.DataFrame(rows)
+    if not len(bench):
+        return bench, pd.DataFrame()
+    if "n_predicted" in bench:
+        bench["n_predicted"] = bench["n_predicted"].astype("Int64")
+    stage_order = {s: i for i, s in enumerate(CHAIN)}
+    bench = (
+        bench.assign(s=bench["stage"].map(stage_order))
+        .sort_values(["s", "gene"])
+        .drop(columns="s")
+        .reset_index(drop=True)
+    )
+    tested = bench[bench["tested"]]
+    means = tested.groupby("stage")[METRICS + ["auroc"]].mean()
+    summary = pd.DataFrame(
+        {
+            "n_genes": bench.groupby("stage").size(),
+            "n_tested": tested.groupby("stage").size(),
+            "auroc_above_half": tested.groupby("stage")["auroc"].apply(
+                lambda a: (a.dropna() > 0.5).mean(),
+            ),
+        },
+    ).join(means)
+    summary = summary.reindex(
+        [s for s in CHAIN if s in summary.index],
+    ).fillna({"n_tested": 0})
+    summary["n_tested"] = summary["n_tested"].astype(int)
+    summary["circular"] = summary.index == ANCHOR_STAGE
+    print(summary.to_string())
+    return bench, summary
+
+
+def analyze(
+    adata,
+    net,
+    homologs,
+    stage_maps,
+    stage_markers,
+    known_genes,
+):
     """Run every analysis step on one set of cells and return the results.
 
     Adds stage clusters and the per-stage UMAP to adata. Writes nothing.
@@ -1119,8 +1566,8 @@ def analyze(adata, net, homologs, neural_plate):
         res["calls"].index[res["calls"]["neural_plate"]],
     )
     blastomeres = sorted(
-        set(NP_GRID) | set(neural_plate["name"]),
-        key=lambda b: (b[0], int(b.split(".")[1])),
+        set(NP_GRID) | set(stage_maps[ANCHOR_STAGE]["name"]),
+        key=blastomere_key,
     )
     res["full"], res["best"] = best_cluster_per_blastomere(
         res["es"],
@@ -1135,8 +1582,27 @@ def analyze(adata, net, homologs, neural_plate):
         clusters_at,
         nodes,
         stages,
+        stage_maps,
     )
     res["adjacency"] = adjacency_table(nodes, edges, node_identity, stages)
+    res["clone_shares"] = clone_shares(
+        edges,
+        cluster_pick,
+        clusters_at,
+        stages,
+    )
+    res["expression"] = predict_expression(
+        res["de"],
+        res["clone_shares"],
+        nodes,
+        stage_maps,
+        known_genes,
+    )
+    res["top_genes"] = top_genes(res["expression"])
+    res["expression_benchmark"] = expression_benchmark(
+        res["expression"],
+        stage_markers,
+    )
     res["backward"] = backward_benchmark(
         adata,
         res["tp"],
@@ -1388,13 +1854,27 @@ def plot_neural_plate(
     name,
     clusters=None,
     vmax=None,
+    notes=None,
+    outline=None,
+    outline_label=None,
+    key="name",
 ):
-    """Neural plate map shaded by one value per blastomere, optionally with a
-    cluster number in each cell."""
-    gdf = neural_plate.join(values.rename("value"), on="name")
+    """Neural plate map shaded by one value per blastomere.
+
+    values and notes are indexed by the map column key: "name" for the cell
+    itself, "clone" for the midG cell it descends from. Optionally writes a
+    cluster number (clusters) or a short text (notes) under each cell name,
+    and outlines a set of cells by name (outline)."""
+    gdf = neural_plate.join(values.rename("value"), on=key)
+    second = pd.Series(None, index=gdf.index, dtype=object)
     if clusters is not None:
-        gdf = gdf.join(clusters.rename("stage_cluster"), on="name")
-    fig, ax = plt.subplots(figsize=(7, 4.8))
+        cl = gdf["name"].map(clusters)
+        second = cl.map(lambda c: str(num(c)) if isinstance(c, str) else None)
+    elif notes is not None:
+        second = gdf[key].map(notes)
+    x0, y0, x1, y1 = gdf.total_bounds
+    height = min(max(5.6 * (y1 - y0) / (x1 - x0) + 0.8, 3.0), 10.0)
+    fig, ax = plt.subplots(figsize=(7, height))
     gdf.plot(
         column="value",
         cmap="Blues",
@@ -1407,34 +1887,56 @@ def plot_neural_plate(
         legend_kwds={"label": label, "shrink": 0.6},
         missing_kwds={"color": "#f0efec", "edgecolor": "white"},
     )
+    if outline:
+        gdf[gdf["name"].isin(outline)].boundary.plot(
+            ax=ax,
+            color=INK,
+            linewidth=1.6,
+        )
+        ax.legend(
+            handles=[
+                Rectangle((0, 0), 1, 1, fill=False, edgecolor=INK, lw=1.6),
+            ],
+            labels=[outline_label or "outlined cells"],
+            loc="upper left",
+            bbox_to_anchor=(0.0, 0.0),
+            frameon=False,
+            fontsize=7,
+        )
     top = vmax or gdf["value"].max()
-    for i, (pt, cell_name, v) in enumerate(
-        zip(gdf.representative_point(), gdf["name"], gdf["value"]),
+    points = gdf.representative_point()
+    for pt, cell_name, v, text in zip(
+        points,
+        gdf["name"],
+        gdf["value"],
+        second,
     ):
         ink = "white" if v > 0.55 * top else INK
-        cl = gdf["stage_cluster"].iloc[i] if clusters is not None else None
+        has_text = isinstance(text, str) and text != ""
         ax.annotate(
             cell_name,
             (pt.x, pt.y),
-            xytext=(0, 7 if isinstance(cl, str) else 0),
+            xytext=(0, 7 if has_text else 0),
             textcoords="offset points",
             ha="center",
             va="center",
             fontsize=5.5,
             color=ink,
         )
-        if isinstance(cl, str):
-            ax.annotate(
-                str(num(cl)),
-                (pt.x, pt.y),
-                xytext=(0, -3),
-                textcoords="offset points",
-                ha="center",
-                va="center",
-                fontsize=8,
-                fontweight="bold",
-                color=ink,
-            )
+        if not has_text:
+            continue
+        big = clusters is not None
+        ax.annotate(
+            text,
+            (pt.x, pt.y),
+            xytext=(0, -3),
+            textcoords="offset points",
+            ha="center",
+            va="center",
+            fontsize=8 if big else 4.5,
+            fontweight="bold" if big else "normal",
+            color=ink,
+        )
     ax.set_axis_off()
     ax.set_title(title, loc="left", fontsize=9, color=INK)
     save(fig, out, name)
@@ -1712,39 +2214,348 @@ def plot_forward(forward, shares, stages, out):
     save(fig, out, "forward_tissue_composition")
 
 
+def plot_expression_heatmaps(expression, out):
+    """Per stage: specificity of the top predicted genes (no ANISEED data)
+    of every clone across the neural plate clones, with a dot where the gene
+    is expressed."""
+    cmap = DIVERGING.with_extremes(bad="#f0efec")
+    for st, t in expression.items():
+        spec = t[t["specific"] & ~t["known"]].sort_values(
+            ["specificity", "gene"],
+            ascending=[False, True],
+        )
+        chosen = spec.groupby("clone", sort=False).head(TOP_GENES)
+        if not len(chosen):
+            continue
+        peak = chosen.drop_duplicates("gene").set_index("gene")["clone"]
+        cols = [b for b in NP_ORDER if b in set(t["clone"])]
+        genes = sorted(peak.index, key=lambda x: (cols.index(peak[x]), x))
+        g = t[t["gene"].isin(genes)]
+        value = g.pivot(index="gene", columns="clone", values="specificity")
+        value = value.reindex(index=genes, columns=cols)
+        dots = g.pivot(index="gene", columns="clone", values="expressed")
+        dots = dots.reindex(index=genes, columns=cols).fillna(False)
+        info = g.drop_duplicates("gene").set_index("gene", drop=False)
+        labels = [gene_label(info.loc[x]) for x in genes]
+        fig, ax = plt.subplots(
+            figsize=(0.28 * len(cols) + 3.5, 0.16 * len(genes) + 1.6),
+        )
+        im = ax.imshow(
+            value.clip(-3, 3).to_numpy(dtype=float),
+            cmap=cmap,
+            vmin=-3,
+            vmax=3,
+            aspect="auto",
+            interpolation="nearest",
+        )
+        i, j = np.nonzero(dots.to_numpy(dtype=bool))
+        ax.scatter(j, i, s=3, color=INK, linewidths=0)
+        names = t.drop_duplicates("clone").set_index("clone")["descendants"]
+        ticks = [names.get(b) or b for b in cols]
+        ax.set_xticks(range(len(cols)), ticks, rotation=90)
+        ax.set_yticks(range(len(genes)), labels, fontsize=5)
+        xlabel = f"{st} cells"
+        if st != ANCHOR_STAGE:
+            xlabel += f", grouped by the {ANCHOR_STAGE} cell they come from"
+        ax.set_xlabel(xlabel)
+        style(ax, grid_axis=None)
+        cb = fig.colorbar(im, ax=ax, shrink=0.5)
+        cb.set_label("log2 over the plate mean", color=MUTED, fontsize=7)
+        cb.ax.tick_params(colors=MUTED, labelsize=7)
+        cb.outline.set_visible(False)
+        ax.legend(
+            handles=[plt.Line2D([], [], marker="o", ls="", ms=2, color=INK)],
+            labels=[f"expressed (support ≥ {EXPRESSED_MIN:g})"],
+            loc="upper left",
+            bbox_to_anchor=(1.0, 0.1),
+            frameon=False,
+            fontsize=7,
+        )
+        ax.set_title(
+            f"Predicted expression at {st} across the neural plate",
+            loc="left",
+            fontsize=9,
+            color=INK,
+        )
+        save(fig, out, f"{st}_clone_expression")
+
+
+def plot_expression_maps(expression, tops, bench, stage_maps, out):
+    """Neural plate maps per stage, on that stage's map (the midG map when it
+    has none), shaded by expected expression (log1p CP10k) on one scale per
+    gene across stages:
+
+    - each clone's most specific predicted gene (no ANISEED data);
+    - predicted genes, the MAP_PER_CLONE most specific of each clone at any
+      stage plus MAP_GENES, at every stage;
+    - ground truth, the ANISEED genes in bench, at their stage with the in
+      situ cells outlined.
+
+    Cells of one clone share a value; the transport cannot tell sisters
+    apart."""
+    peak = pd.concat(
+        [t.groupby("gene")["log_cp10k"].max() for t in expression.values()],
+        axis=1,
+    ).max(axis=1)
+    truth = {}
+    if len(bench):
+        ok = bench[bench["tested"]]
+        for st, gene, cells in zip(ok["stage"], ok["gene"], ok["cells"]):
+            truth[st, gene] = cells.split("/")
+    predicted = list(MAP_GENES)
+    if len(tops):
+        picked = tops.loc[tops["rank"] <= MAP_PER_CLONE, "gene"]
+        predicted = list(dict.fromkeys(list(picked) + predicted))
+    for st, t in expression.items():
+        m = stage_maps.get(st, stage_maps[ANCHOR_STAGE])
+        first = tops[(tops["stage"] == st) & (tops["rank"] == 1)]
+        first = first.set_index("clone")
+        notes = first["gene"].str.replace(r"^KY21\.", "", regex=True)
+        if "gene_name" in first:
+            names = first["gene_name"].map(
+                lambda n: short_name(n) if isinstance(n, str) else "",
+            )
+            notes = names.where(names != "", notes)
+        novel = t["specific"] & ~t["known"]
+        n_specific = novel.groupby(t["clone"]).sum()
+        title = f"Most specific predicted gene at {st}"
+        if st != ANCHOR_STAGE:
+            title += f", per {ANCHOR_STAGE} clone"
+        plot_neural_plate(
+            m,
+            n_specific,
+            "specific predicted genes",
+            title,
+            out,
+            f"{st}_top_gene_map",
+            notes=notes,
+            key="clone",
+        )
+
+        jobs = {gene: None for gene in predicted}
+        for (s, gene), cells in truth.items():
+            if s == st:
+                jobs[gene] = cells
+        for gene, cells in jobs.items():
+            g = t[t["gene"] == gene]
+            if not len(g):
+                continue
+            level = g.set_index("clone")["log_cp10k"]
+            title = f"{gene_label(g.iloc[0])} at {st}"
+            outline = None
+            if cells is not None:
+                outline = {n for n in m["name"] if covered(n, cells)}
+            plot_neural_plate(
+                m,
+                level,
+                "expected expression, log1p(CP10k)",
+                title,
+                out,
+                f"{st}_gene_{file_safe(gene)}",
+                vmax=peak[gene],
+                outline=outline,
+                outline_label=f"ANISEED in situ, {st}",
+                key="clone",
+            )
+
+
+def plot_expression_benchmark(summary, out):
+    """Mean precision, recall and AUROC of the predicted expression against
+    ANISEED, per stage."""
+    if not len(summary):
+        return
+    shown = ["precision", "recall", "auroc"]
+    x = np.arange(len(summary))
+    width = 0.8 / len(shown)
+    fig, ax = plt.subplots(figsize=(1.2 * len(summary) + 2.5, 3.6))
+    for i, (m, color) in enumerate(zip(shown, SERIES)):
+        ax.bar(
+            x + (i - 1) * width,
+            summary[m],
+            width=width,
+            color=color,
+            edgecolor=SURFACE,
+            linewidth=1,
+            label=m.upper() if m == "auroc" else m,
+        )
+    ax.axhline(
+        0.5,
+        color=MUTED,
+        linewidth=1,
+        linestyle="--",
+        label="AUROC by chance",
+    )
+    ticks = []
+    for st, row in summary.iterrows():
+        tick = f"{st}\n{int(row['n_tested'])}/{int(row['n_genes'])} genes"
+        if row["circular"]:
+            tick += "\n(anchoring markers)"
+        ticks.append(tick)
+    ax.set_xticks(x, ticks)
+    ax.set_ylim(0, 1)
+    ax.set_ylabel("mean over ANISEED genes")
+    style(ax)
+    ax.legend(
+        frameon=False,
+        fontsize=7,
+        loc="upper left",
+        bbox_to_anchor=(1.0, 1.0),
+    )
+    ax.set_title(
+        "Predicted expression against ANISEED in situ patterns",
+        loc="left",
+        fontsize=9,
+        color=INK,
+    )
+    save(fig, out, "expression_benchmark")
+
+
 # %% Writers
 def write_results(res, out):
     """Write the tables, graph and AnnData of one analyze() result."""
     for st, de in res["de"].items():
-        write_csv(de, out, f"{st}_de", index=False)
-    write_csv(res["edges"], out, "transport_edges", index=False)
-    nx.write_graphml(res["graph"], f"{out}_transport_graph.graphml")
-    write_csv(res["es"], out, f"{ANCHOR_STAGE}_territory_scores")
-    write_csv(res["calls"], out, f"{ANCHOR_STAGE}_territory_calls")
-    write_csv(res["full"], out, "blastomere_cluster_scores", index=False)
-    write_csv(res["best"], out, "blastomere_best_cluster")
+        write_csv(
+            de,
+            out,
+            f"{st}_de",
+            index=False,
+        )
+    write_csv(
+        res["edges"],
+        out,
+        "transport_edges",
+        index=False,
+    )
+    nx.write_graphml(
+        res["graph"],
+        f"{out}_transport_graph.graphml",
+    )
+    write_csv(
+        res["es"],
+        out,
+        f"{ANCHOR_STAGE}_territory_scores",
+    )
+    write_csv(
+        res["calls"],
+        out,
+        f"{ANCHOR_STAGE}_territory_calls",
+    )
+    write_csv(
+        res["full"],
+        out,
+        "blastomere_cluster_scores",
+        index=False,
+    )
+    write_csv(
+        res["best"],
+        out,
+        "blastomere_best_cluster",
+    )
     _, by_label, by_blastomere, summary = res["winkley"]
-    write_csv(by_label, out, f"{ANCHOR_STAGE}_winkley_labels")
-    write_csv(by_blastomere, out, f"{ANCHOR_STAGE}_winkley_blastomeres")
-    write_csv(summary, out, f"{ANCHOR_STAGE}_winkley_summary", index=False)
-    write_csv(res["identities"], out, "predicted_identities")
-    write_csv(res["adjacency"], out, "adjacency", sep="\t")
+    write_csv(
+        by_label,
+        out,
+        f"{ANCHOR_STAGE}_winkley_labels",
+    )
+    write_csv(
+        by_blastomere,
+        out,
+        f"{ANCHOR_STAGE}_winkley_blastomeres",
+    )
+    write_csv(
+        summary,
+        out,
+        f"{ANCHOR_STAGE}_winkley_summary",
+        index=False,
+    )
+    write_csv(
+        res["identities"],
+        out,
+        "predicted_identities",
+    )
+    write_csv(
+        res["adjacency"],
+        out,
+        "adjacency",
+        sep="\t",
+    )
     backward, backward_shares, backward_summary = res["backward"]
-    write_csv(backward, out, "backward_benchmark", index=False)
-    write_csv(backward_shares, out, "backward_label_shares", index=False)
-    write_csv(backward_summary, out, "backward_summary")
+    write_csv(
+        backward,
+        out,
+        "backward_benchmark",
+        index=False,
+    )
+    write_csv(
+        backward_shares,
+        out,
+        "backward_label_shares",
+        index=False,
+    )
+    write_csv(
+        backward_summary,
+        out,
+        "backward_summary",
+    )
     forward, forward_shares, forward_summary = res["forward"]
-    write_csv(forward, out, "forward_benchmark", index=False)
-    write_csv(forward_shares, out, "forward_tissue_shares", index=False)
-    write_csv(forward_summary, out, "forward_summary")
+    write_csv(
+        forward,
+        out,
+        "forward_benchmark",
+        index=False,
+    )
+    write_csv(
+        forward_shares,
+        out,
+        "forward_tissue_shares",
+        index=False,
+    )
+    write_csv(
+        forward_summary,
+        out,
+        "forward_summary",
+    )
+    for st, share in res["clone_shares"].items():
+        write_csv(
+            share,
+            out,
+            f"{st}_clone_shares",
+        )
+    for st, t in res["expression"].items():
+        expressed = t[t["n_clones"] > 0]
+        write_csv(
+            expressed,
+            out,
+            f"{st}_clone_expression",
+            index=False,
+        )
+    write_csv(
+        res["top_genes"],
+        out,
+        "clone_top_genes",
+        index=False,
+    )
+    bench, bench_summary = res["expression_benchmark"]
+    write_csv(
+        bench,
+        out,
+        "expression_benchmark",
+        index=False,
+    )
+    write_csv(
+        bench_summary,
+        out,
+        "expression_benchmark_summary",
+    )
     adata = res["adata"]
     for col in ("stage_leiden", "stage_cluster", "np_blastomeres"):
         adata.obs[col] = pd.Categorical(adata.obs[col].astype(object))
     adata.write_h5ad(f"{out}_lineage.h5ad")
 
 
-def plot_results(res, neural_plate, out):
+def plot_results(res, stage_maps, out):
     """Draw every figure of one analyze() result."""
+    neural_plate = stage_maps[ANCHOR_STAGE]
     stages, clusters_at = res["stages"], res["clusters_at"]
     plot_stage_umaps(res["adata"], stages, out)
     plot_transport_heatmaps(res["edges"], stages, clusters_at, out)
@@ -1780,17 +2591,36 @@ def plot_results(res, neural_plate, out):
     plot_backward(backward, backward_shares, res["calls"], out)
     forward, forward_shares, _ = res["forward"]
     plot_forward(forward, forward_shares, stages, out)
+    plot_expression_heatmaps(res["expression"], out)
+    bench, bench_summary = res["expression_benchmark"]
+    plot_expression_maps(
+        res["expression"],
+        res["top_genes"],
+        bench,
+        stage_maps,
+        out,
+    )
+    plot_expression_benchmark(bench_summary, out)
 
 
 # %% All cells
 net = load_territory_net()
 homologs = load_homologs()
-neural_plate = load_neural_plate()
+stage_maps = load_stage_maps()
+stage_markers = load_stage_markers()
+known_genes = load_known_genes()
 adata = sc.read_h5ad(f"{PREFIX}_{GENOME}.h5ad")
 adata = adata[adata.obs[STAGE_KEY].isin(CHAIN).to_numpy()].copy()
-res = analyze(adata, net, homologs, neural_plate)
+res = analyze(
+    adata,
+    net,
+    homologs,
+    stage_maps,
+    stage_markers,
+    known_genes,
+)
 write_results(res, OUT)
-plot_results(res, neural_plate, OUT)
+plot_results(res, stage_maps, OUT)
 
 # %% Ancestors and descendants of the midG neural plate clusters
 np_lineage = neural_plate_lineage(
@@ -1807,9 +2637,20 @@ selected = np_lineage.index[np_lineage["selected"]]
 adata_np = adata[adata.obs["stage_cluster"].isin(selected).to_numpy()].copy()
 adata_np.obs["stage_cluster_all"] = adata_np.obs["stage_cluster"].astype(str)
 adata_np.obs = adata_np.obs.drop(
-    columns=["stage_leiden", "stage_cluster", "np_blastomeres"],
+    columns=[
+        "stage_leiden",
+        "stage_cluster",
+        "np_blastomeres",
+    ],
 )
 del adata_np.obsm["X_umap_stage"]
-res_np = analyze(adata_np, net, homologs, neural_plate)
+res_np = analyze(
+    adata_np,
+    net,
+    homologs,
+    stage_maps,
+    stage_markers,
+    known_genes,
+)
 write_results(res_np, f"{OUT}_np")
-plot_results(res_np, neural_plate, f"{OUT}_np")
+plot_results(res_np, stage_maps, f"{OUT}_np")
