@@ -5,8 +5,11 @@
 # and checked against Winkley's labels at midG, backward to c64 and iniG, and
 # forward against Cao's tissue labels. The whole process runs twice: on all
 # cells, then on the clusters that the transport network places upstream or
-# downstream of the midG neural plate clusters. Analysis functions return
-# objects; the write_ and plot_ helpers put them on disk.
+# downstream of the midG neural plate clusters. Genes without ANISEED in situ
+# data are predicted per midG cell and its descendants at midG, earN and latN
+# from the per-stage DE and the transport. Analysis functions return
+# objects; analyze() runs them in order and writes each step's tables and
+# figures as soon as that step finishes.
 
 # %% Setup
 import re
@@ -184,8 +187,16 @@ GRID_ROWS = [
 
 # %% Helpers
 def to_generation(label, gen):
-    """Blastomeres named in a label, moved to one generation: ancestors of
-    later cells, descendants of earlier ones."""
+    """Move every blastomere named in a label to one generation: the ancestor
+    of a later cell, all descendants of an earlier one.
+
+    :param label: Text naming blastomeres, e.g. "A9.15/A9.16".
+    :type label: str
+    :param gen: Target generation.
+    :type gen: int
+    :returns: Blastomere names at generation gen.
+    :rtype: set[str]
+    """
     out = set()
     for line, g, k in BLASTOMERE_RE.findall(str(label)):
         g, k = int(g), int(k)
@@ -199,7 +210,15 @@ def to_generation(label, gen):
 
 
 def winkley_blastomeres(label):
-    """Blastomeres covered by a Winkley neural plate grid label."""
+    """Find the NP_GRID cells covered by a Winkley "NP (A|a) columns:rows"
+    grid label.
+
+    :param label: Winkley cell type label.
+    :type label: str
+    :returns: NP_GRID cells in the label's rows and columns; empty for any
+        other label.
+    :rtype: set[str]
+    """
     m = WINKLEY_NP_RE.match(str(label).strip())
     if not m:
         return set()
@@ -213,8 +232,19 @@ def winkley_blastomeres(label):
 
 
 def set_scores(pick, truth, n=len(NP_GRID)):
-    """Two blastomere sets: precision-weighted bits of our pick, and bits
-    gained over the truth."""
+    """Score a picked blastomere set against a true set.
+
+    :param pick: Predicted blastomeres.
+    :type pick: set[str]
+    :param truth: True blastomeres; must not be empty.
+    :type truth: set[str]
+    :param n: Number of cells on the plate.
+    :type n: int
+    :returns: precision, recall, jaccard, bits of the pick (log2 n/|pick|),
+        score (precision x bits / log2 n) and gain (precision x bits minus the
+        bits of the truth).
+    :rtype: dict[str, float]
+    """
     hit = len(pick & truth)
     truth_bits = np.log2(n / len(truth))
     if not pick:
@@ -239,18 +269,42 @@ def set_scores(pick, truth, n=len(NP_GRID)):
 
 
 def num(node):
-    """Leiden number of a "{stage}_{leiden}" cluster name."""
+    """Read the Leiden number of a "{stage}_{leiden}" cluster name.
+
+    :param node: Cluster name, e.g. "midG_12".
+    :type node: str
+    :returns: The Leiden number.
+    :rtype: int
+    """
     return int(node.rsplit("_", 1)[-1])
 
 
 def labels_of(adata, key):
-    """One obs column as strings, with missing values as empty strings."""
+    """Read an obs column as strings.
+
+    :param adata: Cells.
+    :type adata: anndata.AnnData
+    :param key: obs column.
+    :type key: str
+    :returns: One string per cell, "" where missing.
+    :rtype: numpy.ndarray
+    """
     return adata.obs[key].astype(object).fillna("").astype(str).to_numpy()
 
 
 def share_list(e, key, share):
-    """Children or parents of each cluster as "cluster:share" text, strongest
-    first."""
+    """Format each cluster's children or parents as text.
+
+    :param e: Transport edges.
+    :type e: pandas.DataFrame
+    :param key: "from" for children, "to" for parents.
+    :type key: str
+    :param share: Share column, "fwd" or "bwd".
+    :type share: str
+    :returns: Per cluster, "cluster:share" pairs with a share of MIN_EDGE or
+        more, largest first.
+    :rtype: pandas.Series
+    """
     e = e[e[share] >= MIN_EDGE].sort_values(share, ascending=False)
     other = "to" if key == "from" else "from"
 
@@ -261,24 +315,56 @@ def share_list(e, key, share):
 
 
 def plain(v):
-    """A numpy scalar as a plain Python value, other values unchanged."""
+    """Convert a numpy scalar to a Python value.
+
+    :param v: Any value.
+    :type v: object
+    :returns: The Python value, or v unchanged when it is not a numpy scalar.
+    :rtype: object
+    """
     return v.item() if hasattr(v, "item") else v
 
 
 def edges_between(edges, sources, targets):
-    """Edges from any of the source clusters to any of the target clusters."""
+    """Select the edges from some clusters to others.
+
+    :param edges: Cluster transport edges from transport_edges.
+    :type edges: pandas.DataFrame
+    :param sources: Source clusters.
+    :type sources: list[str]
+    :param targets: Target clusters.
+    :type targets: list[str]
+    :returns: Edges from any source to any target.
+    :rtype: pandas.DataFrame
+    """
     keep = edges["from"].isin(sources) & edges["to"].isin(targets)
     return edges[keep]
 
 
 def early_blastomeres(label, gen):
-    """Blastomeres of a Winkley label at one generation, translating the
-    early neural labels through WINKLEY_EARLY."""
+    """Find the blastomeres of a Winkley label at one generation, reading the
+    early neural labels through WINKLEY_EARLY.
+
+    :param label: Winkley cell type label.
+    :type label: str
+    :param gen: Target generation.
+    :type gen: int
+    :returns: Blastomere names at generation gen.
+    :rtype: set[str]
+    """
     return to_generation(WINKLEY_EARLY.get(label, label), gen)
 
 
 def fmt(weights, keep=None):
-    """A {name: weight} dict as "name:weight" text, strongest first."""
+    """Format weights as "name:weight" text, largest first.
+
+    :param weights: Weight of each name.
+    :type weights: dict[str, float]
+    :param keep: Names to show; None shows weights of MIN_SHOW or more.
+    :type keep: set[str] or None
+    :returns: Comma-separated pairs.
+    :rtype: str
+    """
     items = sorted(weights.items(), key=lambda kv: (-kv[1], kv[0]))
     if keep is None:
         items = [(k, v) for k, v in items if v >= MIN_SHOW]
@@ -288,12 +374,24 @@ def fmt(weights, keep=None):
 
 
 def blastomere_key(b):
-    """Sort key for blastomere names: line, then cell number."""
+    """Sort blastomere names by line, then cell number.
+
+    :param b: Blastomere name, e.g. "a9.49".
+    :type b: str
+    :returns: Line letter and cell number.
+    :rtype: tuple[str, int]
+    """
     return b[0], int(b.split(".")[1])
 
 
 def grid_key(b):
-    """Sort key for neural plate cells: grid row I to VI, then column."""
+    """Sort NP_GRID cells by grid row I to VI, then column.
+
+    :param b: NP_GRID cell name.
+    :type b: str
+    :returns: Row index and column.
+    :rtype: tuple[int, int]
+    """
     row, col = NP_GRID[b]
     return GRID_ROWS.index(row), col
 
@@ -302,22 +400,44 @@ NP_ORDER = sorted(NP_GRID, key=grid_key)
 
 
 def generation_of(b):
-    """Generation of a blastomere name: 10 for A10.29."""
+    """Read the generation of a blastomere name.
+
+    :param b: Blastomere name, e.g. "A10.29".
+    :type b: str
+    :returns: The generation, 10 for A10.29.
+    :rtype: int
+    """
     return int(b.split(".")[0][1:])
 
 
 def covered(name, cells):
-    """Whether a blastomere is one of the cells, or an ancestor or a
-    descendant of one of them."""
+    """Check whether a blastomere is one of some cells, or an ancestor or
+    descendant of one.
+
+    :param name: Blastomere to check.
+    :type name: str
+    :param cells: Blastomere names.
+    :type cells: list[str]
+    :returns: True when covered.
+    :rtype: bool
+    """
     gen = generation_of(name)
     return any(name in to_generation(c, gen) for c in cells)
 
 
 def map_cells(b, st, stage_maps):
-    """Cells on the stage's map that are b or descend from it: the gen-10
-    daughters where the map has them, b itself where it has not divided.
-    Without a map, or with none of them on it, b's cells at
-    IDENTITY_GEN."""
+    """Find the cells on a stage map that are a blastomere or descend from it.
+
+    :param b: Blastomere name.
+    :type b: str
+    :param st: Stage.
+    :type st: str
+    :param stage_maps: Neural plate maps from load_stage_maps.
+    :type stage_maps: dict[str, geopandas.GeoDataFrame]
+    :returns: Map cells matching b; b's cells at IDENTITY_GEN[st] when the
+        stage has no map or none match.
+    :rtype: set[str]
+    """
     m = stage_maps.get(st)
     if m is not None:
         g = generation_of(b)
@@ -331,13 +451,27 @@ def map_cells(b, st, stage_maps):
 
 
 def join_names(names):
-    """Blastomere names as "A10.29/A10.30", in cell-number order."""
+    """Join blastomere names in line and cell-number order.
+
+    :param names: Blastomere names.
+    :type names: iterable[str]
+    :returns: Names joined by "/".
+    :rtype: str
+    """
     return "/".join(sorted(names, key=blastomere_key))
 
 
 def auroc(score, positive):
-    """Chance that a positive item outscores a negative one, ties counting
-    half. NaN unless both classes are present."""
+    """Compute the area under the ROC curve, ties counting half.
+
+    :param score: Score of each item.
+    :type score: array-like
+    :param positive: Whether each item is positive.
+    :type positive: array-like of bool
+    :returns: Chance that a positive item outscores a negative one; NaN unless
+        both classes are present.
+    :rtype: float
+    """
     positive = np.asarray(positive, dtype=bool)
     n1, n0 = positive.sum(), (~positive).sum()
     if not n1 or not n0:
@@ -347,26 +481,51 @@ def auroc(score, positive):
 
 
 def short_name(name):
-    """A gene name without its parenthesised part: "Ptf1a-r (PTF1A)" becomes
-    "Ptf1a-r"."""
+    """Drop the parenthesised parts of a gene name.
+
+    :param name: Gene name, e.g. "Ptf1a-r (PTF1A)".
+    :type name: str
+    :returns: The name without them, e.g. "Ptf1a-r".
+    :rtype: str
+    """
     return re.sub(r"\s*\([^()]*\)", "", str(name)).strip()
 
 
 def gene_label(row):
-    """A gene's name without its parenthesised part, or its KY21 ID when it
-    has no name."""
+    """Label a gene for plots.
+
+    :param row: Row with "gene" and optionally "gene_name".
+    :type row: pandas.Series or dict
+    :returns: short_name of the gene name, or the KY21 ID when there is no
+        name.
+    :rtype: str
+    """
     name = row.get("gene_name")
     name = short_name(name) if isinstance(name, str) and name else ""
     return name or row["gene"]
 
 
 def file_safe(text):
-    """Text usable in a file name."""
+    """Make text usable in a file name.
+
+    :param text: Any text.
+    :type text: str
+    :returns: The text with runs of other characters than letters, digits,
+        ".", "_" and "-" replaced by "_".
+    :rtype: str
+    """
     return re.sub(r"[^\w.-]+", "_", str(text))
 
 
 def style(ax, grid_axis="y"):
-    """Recessive axes, muted ticks and a hairline grid."""
+    """Style an axis: surface background, no top or right spine, muted ticks
+    and a hairline grid.
+
+    :param ax: Axis to style.
+    :type ax: matplotlib.axes.Axes
+    :param grid_axis: "x", "y", "both", or None for no grid.
+    :type grid_axis: str or None
+    """
     ax.set_facecolor(SURFACE)
     for side in ("top", "right"):
         ax.spines[side].set_visible(False)
@@ -381,24 +540,46 @@ def style(ax, grid_axis="y"):
 
 
 def save(fig, out, name):
-    """Write a figure as {out}_{name}.png and close it."""
+    """Save a figure as {out}_{name}.png at DPI and close it.
+
+    :param fig: Figure to save.
+    :type fig: matplotlib.figure.Figure
+    :param out: Output file prefix.
+    :type out: str
+    :param name: File name suffix.
+    :type name: str
+    """
     fig.patch.set_facecolor(SURFACE)
     fig.savefig(f"{out}_{name}.png", dpi=DPI, bbox_inches="tight")
     plt.close(fig)
 
 
 def write_csv(table, out, name, **kwargs):
-    """Write a table as {out}_{name}.csv, or .tsv when sep is a tab."""
+    """Write a table as {out}_{name}.csv, or .tsv when sep is a tab.
+
+    :param table: Table to write.
+    :type table: pandas.DataFrame
+    :param out: Output file prefix.
+    :type out: str
+    :param name: File name suffix.
+    :type name: str
+    :param kwargs: Passed to DataFrame.to_csv.
+    :type kwargs: dict
+    """
     ext = "tsv" if kwargs.get("sep") == "\t" else "csv"
     table.to_csv(f"{out}_{name}.{ext}", **kwargs)
 
 
 # %% Inputs
 def load_territory_net():
-    """ANISEED stage-12 marker genes as a decoupler network in KY21 gene IDs.
+    """Read the MARKER_STAGES rows of MARKERS as a decoupler network.
+    Territories with the same gene set become one source named like
+    "a9.35/a9.36/a9.39/a9.40".
 
-    Territories with identical marker sets are merged into one source named
-    like "a9.35/a9.36/a9.39/a9.40".
+    :returns: Columns "source" (territory), "target" (KY21 gene) and "weight"
+        (1).
+    :rtype: pandas.DataFrame
+    :raises ValueError: A MARKER_STAGES label is not in MARKERS.
     """
     kh2ky = pd.read_csv(GENE_MAP, sep="\t").set_index("KH2012")["KY2021"]
     mk = pd.read_csv(MARKERS, sep="\t")
@@ -427,13 +608,14 @@ def load_territory_net():
 
 
 def load_stage_markers():
-    """ANISEED in situ territories at the MARKER_STAGES, in KY21 gene IDs.
+    """Read the MARKER_STAGES rows of MARKERS for the expression benchmark.
 
-    Only the anchoring stage is read: the earN and latN annotations are too
-    sparse and inconsistent to check predictions at a finer resolution than
-    theirs. Each territory becomes the midG neural plate cells whose clones
-    contain it. Returns one row per stage and gene with the set of clones
-    ("truth") and of annotated cells ("cells")."""
+    :returns: One row per stage and KY21 gene: "aniseed" (ANISEED gene name),
+        "truth" (NP_GRID cells at generation 9 covering the annotated cells)
+        and "cells" (annotated cells).
+    :rtype: pandas.DataFrame
+    :raises ValueError: A MARKER_STAGES label is not in MARKERS.
+    """
     kh2ky = pd.read_csv(GENE_MAP, sep="\t").set_index("KH2012")["KY2021"]
     gen = IDENTITY_GEN[ANCHOR_STAGE]
     mk = pd.read_csv(MARKERS, sep="\t")
@@ -467,9 +649,11 @@ def load_stage_markers():
 
 
 def load_known_genes():
-    """KY21 IDs of every gene in MARKERS at any stage. Their in situ
-    patterns are known, so they serve as ground truth and are left out of
-    the predicted genes."""
+    """Collect every gene in MARKERS, at any stage.
+
+    :returns: KY21 IDs of the genes with ANISEED in situ data.
+    :rtype: set[str]
+    """
     kh2ky = pd.read_csv(GENE_MAP, sep="\t").set_index("KH2012")["KY2021"]
     mk = pd.read_csv(MARKERS, sep="\t")
     kh = mk["Gene"].str.extract(r"KH2012:(\S+)")[0]
@@ -479,7 +663,12 @@ def load_known_genes():
 
 
 def load_homologs():
-    """SwissProt homolog of each KY21 gene, with evidence tags removed."""
+    """Read the SwissProt homolog of each KY21 gene from HOMOLOGS, with
+    {ECO:...} evidence tags removed.
+
+    :returns: Indexed by KY21 ID, columns "KH2012", "uniprot" and "homolog".
+    :rtype: pandas.DataFrame
+    """
     homologs = pd.read_csv(HOMOLOGS).set_index("KY2021")
     homologs["homolog"] = homologs["fullname"].str.replace(
         r"\s*\{ECO:[^}]*\}",
@@ -490,9 +679,13 @@ def load_homologs():
 
 
 def load_stage_maps():
-    """Neural plate maps of the stages in STAGE_MAPS as polygons, left and
-    right sides named alike. "clone" is the midG cell each cell descends
-    from. Returns {stage: GeoDataFrame}."""
+    """Read the neural plate polygons of each stage in STAGE_MAPS, with the
+    "*" of right-side names dropped.
+
+    :returns: Per stage, polygons with "name" and "clone", the generation-9
+        ancestor of each cell.
+    :rtype: dict[str, geopandas.GeoDataFrame]
+    """
     gen = IDENTITY_GEN[ANCHOR_STAGE]
     maps = {}
     for st, path in STAGE_MAPS.items():
@@ -506,7 +699,13 @@ def load_stage_maps():
 
 # %% Clusters per stage
 def present_stages(adata):
-    """Stages of CHAIN that have cells, in developmental order."""
+    """List the CHAIN stages that have cells.
+
+    :param adata: Cells.
+    :type adata: anndata.AnnData
+    :returns: Stages in CHAIN order.
+    :rtype: list[str]
+    """
     return [
         s
         for s in adata.obs[STAGE_KEY].cat.categories
@@ -515,12 +714,17 @@ def present_stages(adata):
 
 
 def cluster_stages(adata, stages):
-    """Leiden clusters and a UMAP computed separately for each stage.
-
-    Neighbours use the scVI latent space of that stage's cells only. Adds
-    obs["stage_leiden"] (every Leiden cluster), obs["stage_cluster"]
+    """Run neighbours on LATENT_KEY, Leiden at RESOLUTION and UMAP on each
+    stage separately. Sets obs "stage_leiden", obs "stage_cluster"
     ("{stage}_{leiden}", missing for clusters under MIN_CLUSTER cells) and
-    obsm["X_umap_stage"]. Returns the per-cell cluster names.
+    obsm "X_umap_stage".
+
+    :param adata: Cells; modified in place.
+    :type adata: anndata.AnnData
+    :param stages: Stages present, in CHAIN order.
+    :type stages: list[str]
+    :returns: stage_cluster of each cell, "" where missing.
+    :rtype: numpy.ndarray
     """
     leiden = pd.Series(pd.NA, index=adata.obs_names, dtype=object)
     umap = np.full((adata.n_obs, 2), np.nan)
@@ -557,13 +761,23 @@ def cluster_stages(adata, stages):
 
 # %% Differential expression
 def differential_expression(adata, stages, homologs):
-    """scVI DE between the clusters of each stage, checked within each source.
+    """Test each cluster against the other clusters of its stage with the
+    saved scVI model (change mode, DE_DELTA, batch corrected), then repeat
+    with Wilcoxon within each source that has two or more clusters of
+    MIN_DE_CELLS cells. A gene is replicated when scVI calls it and every
+    tested source (at least two where available) agrees in sign at FDR DE_FDR.
 
-    Each cluster is compared with the other clusters of its stage using the
-    saved scVI model with batch correction. Sources with two or more clusters
-    of MIN_DE_CELLS cells repeat the test with Wilcoxon on log-normalized
-    counts. A gene is replicated when scVI calls it and every tested source
-    agrees in direction at FDR DE_FDR. Returns {stage: DataFrame}."""
+    :param adata: Cells with stage_cluster.
+    :type adata: anndata.AnnData
+    :param stages: Stages present, in CHAIN order.
+    :type stages: list[str]
+    :param homologs: Homologs from load_homologs.
+    :type homologs: pandas.DataFrame
+    :returns: Per stage, one row per cluster and gene with the scVI
+        statistics, per-source lfc and padj, sources_tested, sources_agree,
+        replicated and homologs.
+    :rtype: dict[str, pandas.DataFrame]
+    """
     cluster = labels_of(adata, "stage_cluster")
     obs_stage = labels_of(adata, STAGE_KEY)
     sources = sorted(set(labels_of(adata, BATCH_KEY)))
@@ -681,10 +895,16 @@ def differential_expression(adata, stages, homologs):
 
 # %% Optimal transport
 def solve_transport(adata, stages):
-    """One moscot TemporalProblem over all stages on the scVI latent space.
+    """Solve one moscot TemporalProblem across the stages on LATENT_KEY with
+    EPSILON and TAU_A.
 
-    Returns the solved problem and the AnnData it holds, whose obs carries
-    "time" and "node" (the stage cluster, "none" when unclustered).
+    :param adata: Cells with stage_cluster.
+    :type adata: anndata.AnnData
+    :param stages: Stages present, in CHAIN order.
+    :type stages: list[str]
+    :returns: The solved problem and its copy of adata, whose obs has "time"
+        (stage index) and "node" (stage cluster or "none").
+    :rtype: tuple[moscot.problems.time.TemporalProblem, anndata.AnnData]
     """
     cluster = labels_of(adata, "stage_cluster")
     sub = adata.copy()
@@ -703,7 +923,15 @@ def solve_transport(adata, stages):
 
 
 def clusters_by_stage(adata, stages):
-    """Stage clusters of each stage, ordered by Leiden number."""
+    """List the stage clusters of each stage.
+
+    :param adata: Cells with stage_cluster.
+    :type adata: anndata.AnnData
+    :param stages: Stages present, in CHAIN order.
+    :type stages: list[str]
+    :returns: Clusters of each stage in Leiden order.
+    :rtype: dict[str, list[str]]
+    """
     cluster = labels_of(adata, "stage_cluster")
     obs_stage = labels_of(adata, STAGE_KEY)
     out = {}
@@ -713,10 +941,18 @@ def clusters_by_stage(adata, stages):
 
 
 def transport_edges(tp, stages, clusters_at):
-    """Transported mass between clusters of adjacent stages.
+    """Tabulate the transported mass between every pair of clusters of
+    adjacent stages.
 
-    "fwd" is the share of the source cluster's mass sent to the target and
-    "bwd" the share of the target cluster's mass received from the source.
+    :param tp: Solved problem from solve_transport.
+    :type tp: moscot.problems.time.TemporalProblem
+    :param stages: Stages present, in CHAIN order.
+    :type stages: list[str]
+    :param clusters_at: Stage clusters of each stage, from clusters_by_stage.
+    :type clusters_at: dict[str, list[str]]
+    :returns: "from", "to", "mass", "fwd" (share of the source's outgoing
+        mass) and "bwd" (share of the target's incoming mass).
+    :rtype: pandas.DataFrame
     """
     edges = []
     for i, (a, b) in enumerate(zip(stages[:-1], stages[1:])):
@@ -745,8 +981,15 @@ def transport_edges(tp, stages, clusters_at):
 
 
 def cluster_table(adata):
-    """Per cluster: stage, cells per source, and majority NODE_TISSUE_KEY
-    tissue with its share."""
+    """Summarise each stage cluster.
+
+    :param adata: Cells with stage_cluster.
+    :type adata: anndata.AnnData
+    :returns: Indexed by cluster: "stage", cells per source ("n_*"),
+        "n_cells", the most common NODE_TISSUE_KEY label ("tissue") and its
+        share of the labelled cells ("tissue_frac").
+    :rtype: pandas.DataFrame
+    """
     cluster = labels_of(adata, "stage_cluster")
     has = cluster != ""
     cells = pd.DataFrame(
@@ -776,8 +1019,17 @@ def cluster_table(adata):
 
 
 def transport_graph(nodes, edges):
-    """Directed graph of clusters, keeping edges with a forward or backward
-    share of MIN_EDGE or more."""
+    """Build the transport network, keeping edges whose fwd or bwd share is
+    MIN_EDGE or more.
+
+    :param nodes: Per-cluster table from cluster_table.
+    :type nodes: pandas.DataFrame
+    :param edges: Cluster transport edges from transport_edges.
+    :type edges: pandas.DataFrame
+    :returns: Clusters with the nodes columns as attributes and edges with
+        mass, fwd and bwd.
+    :rtype: networkx.DiGraph
+    """
     strong = edges[(edges["fwd"] >= MIN_EDGE) | (edges["bwd"] >= MIN_EDGE)]
     G = nx.DiGraph()
     for n, row in nodes.iterrows():
@@ -793,14 +1045,24 @@ def transport_graph(nodes, edges):
 
 # %% Anchor mid-gastrula clusters
 def anchor_clusters(adata, net, nodes):
-    """Score every midG cluster against the ANISEED stage-12 territories.
+    """Score each midG cluster against the ANISEED territories with decoupler
+    ULM. Expression of the integration and marker genes is z-scored within
+    each source, averaged per cluster and z-scored across clusters. A cluster
+    is neural plate when its top territory scores above 0 at padj below
+    MAX_PADJ; its blastomeres are every territory within MIN_MARGIN of the top
+    score.
 
-    Genes are standardized within each source, averaged per cluster and scored
-    with decoupler ULM over the integration genes plus the marker panel. A
-    cluster is neural plate when its best territory is positive at FDR
-    MAX_PADJ; its blastomere set is every territory within MIN_MARGIN of the
-    best. Returns the score and p-value matrices, the call table and the
-    blastomere set of each cluster.
+    :param adata: Cells with stage_cluster and raw counts.
+    :type adata: anndata.AnnData
+    :param net: Territory network from load_territory_net.
+    :type net: pandas.DataFrame
+    :param nodes: Per-cluster table from cluster_table.
+    :type nodes: pandas.DataFrame
+    :returns: ULM scores and p-values (clusters x territories), the call table
+        (top territory, score, padj, margin, "neural_plate", "blastomeres")
+        and the blastomere set of each cluster.
+    :rtype: tuple[pandas.DataFrame, pandas.DataFrame, pandas.DataFrame,
+        pandas.Series]
     """
     cluster = labels_of(adata, "stage_cluster")
     obs_stage = labels_of(adata, STAGE_KEY)
@@ -862,10 +1124,21 @@ def anchor_clusters(adata, net, nodes):
 
 
 def best_cluster_per_blastomere(es, pv, nodes, blastomeres):
-    """Rank the midG clusters for each blastomere by its territory score.
+    """Rank the midG clusters for each blastomere by the ULM score of its
+    territory.
 
-    Returns every cluster-blastomere score with its rank, and one row per
-    blastomere with the best and second-best cluster.
+    :param es: ULM scores from anchor_clusters.
+    :type es: pandas.DataFrame
+    :param pv: ULM p-values from anchor_clusters.
+    :type pv: pandas.DataFrame
+    :param nodes: Per-cluster table from cluster_table.
+    :type nodes: pandas.DataFrame
+    :param blastomeres: Blastomeres to rank for.
+    :type blastomeres: list[str]
+    :returns: Every cluster-blastomere score with its rank; and per blastomere
+        its grid row and column, territory, best cluster with its cells, score
+        and padj, second-best cluster and score, and the margin.
+    :rtype: tuple[pandas.DataFrame, pandas.DataFrame]
     """
     group_of = {b: t for t in es.columns for b in t.split("/")}
     full = (
@@ -912,11 +1185,21 @@ def best_cluster_per_blastomere(es, pv, nodes, blastomeres):
 
 # %% Benchmarks
 def winkley_midg_benchmark(adata, cluster_pick, best):
-    """Compare Winkley's midG grid labels with the blastomere set of each
-    cell's cluster.
+    """Compare the blastomere set of each Winkley midG cell's cluster with the
+    cells of its grid label using set_scores.
 
-    Uses set_scores per cell. Returns the per-cell table, means per Winkley
-    label, means per blastomere and the overall means."""
+    :param adata: Cells with stage_cluster and Winkley labels.
+    :type adata: anndata.AnnData
+    :param cluster_pick: Blastomere set of each midG cluster, from
+        anchor_clusters; empty for clusters that are not neural plate.
+    :type cluster_pick: pandas.Series
+    :param best: Best cluster per blastomere.
+    :type best: pandas.DataFrame
+    :returns: Per-cell scores, and their means per label, per blastomere and
+        overall.
+    :rtype: tuple[pandas.DataFrame, pandas.DataFrame, pandas.DataFrame,
+        pandas.DataFrame]
+    """
     wl = pd.DataFrame(
         {
             "label": labels_of(adata, WINKLEY_LABEL_KEY),
@@ -984,13 +1267,26 @@ def predict_identities(
     stages,
     stage_maps,
 ):
-    """Carry midG blastomere sets to the later stages in IDENTITY_GEN.
+    """Carry the midG blastomere sets through the transport to the later
+    IDENTITY_GEN stages. A cluster's weight on a cell sums bwd x the parent's
+    weight over its parent edges, split evenly over the cell's map_cells.
 
-    Each cluster takes its parents' blastomeres in proportion to the backward
-    share of each edge. Every blastomere becomes its cells on that stage's
-    map (map_cells): its gen-10 daughters where the map has them, itself
-    where it has not divided. Returns one row per cluster at those stages and
-    each cluster's identity.
+    :param edges: Cluster transport edges from transport_edges.
+    :type edges: pandas.DataFrame
+    :param cluster_pick: Blastomere set of each midG cluster, from
+        anchor_clusters; empty for clusters that are not neural plate.
+    :type cluster_pick: pandas.Series
+    :param clusters_at: Stage clusters of each stage, from clusters_by_stage.
+    :type clusters_at: dict[str, list[str]]
+    :param nodes: Per-cluster table from cluster_table.
+    :type nodes: pandas.DataFrame
+    :param stages: Stages present, in CHAIN order.
+    :type stages: list[str]
+    :param stage_maps: Neural plate maps from load_stage_maps.
+    :type stage_maps: dict[str, geopandas.GeoDataFrame]
+    :returns: One row per later cluster (top midG ancestor, its cells and all
+        weights), and the identity text of every cluster.
+    :rtype: tuple[pandas.DataFrame, pandas.Series]
     """
     anchor_gen = IDENTITY_GEN[ANCHOR_STAGE]
     identity = {}
@@ -1045,7 +1341,20 @@ def predict_identities(
 
 
 def adjacency_table(nodes, edges, node_identity, stages):
-    """One row per cluster with its tissue, identity, children and parents."""
+    """Summarise each cluster with its neighbours in the transport.
+
+    :param nodes: Per-cluster table from cluster_table.
+    :type nodes: pandas.DataFrame
+    :param edges: Cluster transport edges from transport_edges.
+    :type edges: pandas.DataFrame
+    :param node_identity: Identity text of each cluster.
+    :type node_identity: pandas.Series
+    :param stages: Stages present, in CHAIN order.
+    :type stages: list[str]
+    :returns: Per cluster: stage, cells, tissue, identity, and children and
+        parents with a share of MIN_EDGE or more.
+    :rtype: pandas.DataFrame
+    """
     strong = edges[(edges["fwd"] >= MIN_EDGE) | (edges["bwd"] >= MIN_EDGE)]
     adjacency = nodes[["stage", "n_cells", "tissue"]].assign(
         identity=node_identity,
@@ -1069,14 +1378,29 @@ def adjacency_table(nodes, edges, node_identity, stages):
 
 
 def backward_benchmark(adata, tp, sub, cluster_pick, neural_clusters, stages):
-    """Winkley labels among the transported ancestors of each midG neural
-    plate cluster.
+    """Transport each midG neural plate cluster back to the Winkley-labelled
+    cells of each BENCH_GEN stage and compare each label's share of the
+    ancestry with its share of labelled cells. A label is expected when it
+    covers an ancestor of the cluster's blastomeres.
 
-    For each stage in BENCH_GEN, the ancestry of every neural plate cluster is
-    spread over Winkley's labelled cells and compared with each label's
-    background share. Labels are expected when they cover the ancestor of the
-    cluster's blastomeres. Returns per-cluster rows, per-label shares and per-
-    stage means."""
+    :param adata: Cells with Winkley labels.
+    :type adata: anndata.AnnData
+    :param tp: Solved problem from solve_transport.
+    :type tp: moscot.problems.time.TemporalProblem
+    :param sub: The problem's AnnData from solve_transport; gains a label
+        column per stage.
+    :type sub: anndata.AnnData
+    :param cluster_pick: Blastomere set of each midG cluster, from
+        anchor_clusters; empty for clusters that are not neural plate.
+    :type cluster_pick: pandas.Series
+    :param neural_clusters: midG clusters called neural plate.
+    :type neural_clusters: list[str]
+    :param stages: Stages present, in CHAIN order.
+    :type stages: list[str]
+    :returns: Per-cluster rows (expected and top label with shares and folds),
+        per-label shares, and per-stage means.
+    :rtype: tuple[pandas.DataFrame, pandas.DataFrame, pandas.DataFrame]
+    """
     lab = labels_of(adata, WINKLEY_LABEL_KEY)
     obs_src = labels_of(adata, BATCH_KEY)
     obs_stage = labels_of(adata, STAGE_KEY)
@@ -1172,13 +1496,30 @@ def forward_benchmark(
     clusters_at,
     stages,
 ):
-    """Cao tissue labels among the transported descendants of each midG
-    cluster.
+    """Transport every midG cluster forward to the Cao tissue-labelled cells
+    of each later stage and compare each tissue's share of the descendants
+    with its share of labelled cells.
 
-    For each later stage, every midG cluster's descendants are spread over
-    Cao's published tissue labels and compared with each tissue's background
-    share. Returns per-cluster rows, per-tissue shares and means per stage and
-    neural plate status."""
+    :param adata: Cells with Cao tissue labels.
+    :type adata: anndata.AnnData
+    :param tp: Solved problem from solve_transport.
+    :type tp: moscot.problems.time.TemporalProblem
+    :param sub: The problem's AnnData from solve_transport; gains a label
+        column per stage.
+    :type sub: anndata.AnnData
+    :param cluster_pick: Blastomere set of each midG cluster, from
+        anchor_clusters; empty for clusters that are not neural plate.
+    :type cluster_pick: pandas.Series
+    :param neural_clusters: midG clusters called neural plate.
+    :type neural_clusters: list[str]
+    :param clusters_at: Stage clusters of each stage, from clusters_by_stage.
+    :type clusters_at: dict[str, list[str]]
+    :param stages: Stages present, in CHAIN order.
+    :type stages: list[str]
+    :returns: Per-cluster rows (nervous system share and fold, top tissue),
+        per-tissue shares, and means by stage and neural plate status.
+    :rtype: tuple[pandas.DataFrame, pandas.DataFrame, pandas.DataFrame]
+    """
     tissue = labels_of(adata, CAO_TISSUE_KEY)
     obs_src = labels_of(adata, BATCH_KEY)
     obs_stage = labels_of(adata, STAGE_KEY)
@@ -1253,13 +1594,25 @@ def forward_benchmark(
 
 
 def neural_plate_lineage(edges, stages, clusters_at, neural_clusters, nodes):
-    """Share of each cluster that lies upstream or downstream of the midG
-    neural plate clusters.
+    """Score each cluster's share of lineage through the midG neural plate
+    clusters: 1 or 0 at midG, the bwd-weighted score of the parents later on,
+    the fwd-weighted score of the children earlier on.
 
-    midG clusters score 1 when neural plate and 0 otherwise. Later clusters
-    take the backward-share-weighted score of their parents, earlier clusters
-    the forward-share-weighted score of their children. Clusters scoring
-    LINEAGE_MIN or more are selected."""
+    :param edges: Cluster transport edges from transport_edges.
+    :type edges: pandas.DataFrame
+    :param stages: Stages present, in CHAIN order.
+    :type stages: list[str]
+    :param clusters_at: Stage clusters of each stage, from clusters_by_stage.
+    :type clusters_at: dict[str, list[str]]
+    :param neural_clusters: midG clusters called neural plate.
+    :type neural_clusters: list[str]
+    :param nodes: Per-cluster table from cluster_table.
+    :type nodes: pandas.DataFrame
+    :returns: Per cluster: "np_share", stage, cells, tissue, "role" (ancestor,
+        anchor or descendant) and "selected" (np_share of LINEAGE_MIN or
+        more).
+    :rtype: pandas.DataFrame
+    """
     anchors = clusters_at[ANCHOR_STAGE]
     share = {c: float(c in neural_clusters) for c in anchors}
     i0 = stages.index(ANCHOR_STAGE)
@@ -1305,14 +1658,24 @@ def neural_plate_lineage(edges, stages, clusters_at, neural_clusters, nodes):
 
 # %% Expression by blastomere
 def clone_shares(edges, cluster_pick, clusters_at, stages):
-    """Share of each cluster's cells descending from each midG neural plate
-    cell, at the anchor stage and the later stages in IDENTITY_GEN.
+    """Trace each midG neural plate cell (clone) forward through the
+    transport. midG clusters split evenly over their blastomere set; later
+    clusters sum bwd x their parents' shares, so sisters always get equal
+    shares.
 
-    midG clusters split evenly over their blastomere set. Later clusters take
-    their parents' shares weighted by the backward share of each edge, as in
-    predict_identities. Sister cells always get equal shares, so a midG cell
-    and its clone of descendants is the finest unit. Returns {stage:
-    DataFrame of clusters x clones}."""
+    :param edges: Cluster transport edges from transport_edges.
+    :type edges: pandas.DataFrame
+    :param cluster_pick: Blastomere set of each midG cluster, from
+        anchor_clusters; empty for clusters that are not neural plate.
+    :type cluster_pick: pandas.Series
+    :param clusters_at: Stage clusters of each stage, from clusters_by_stage.
+    :type clusters_at: dict[str, list[str]]
+    :param stages: Stages present, in CHAIN order.
+    :type stages: list[str]
+    :returns: For midG and the later IDENTITY_GEN stages, the share of each
+        cluster's cells descending from each clone (clusters x clones).
+    :rtype: dict[str, pandas.DataFrame]
+    """
     share = {}
     for c, bs in cluster_pick.items():
         if bs:
@@ -1339,19 +1702,29 @@ def clone_shares(edges, cluster_pick, clusters_at, stages):
 
 
 def clone_expression(de, share, nodes, stage, cells_of=None):
-    """Expected expression of every gene in each midG clone at one stage.
+    """Average each gene's per-cluster DE statistics over each clone's cells
+    at one stage, spreading a clone over clusters by share x cluster size. A
+    gene is expressed in a clone at support EXPRESSED_MIN and specific when
+    also SPECIFIC_MIN log2 above its mean over the clones.
 
-    A clone's cells spread over the stage's clusters in proportion to share
-    times cluster size. Per gene and clone, averaged over that spread:
-    scVI normalized expression (expression, and as log1p CP10k), the share
-    of cells with a count (detection), the log fold change, and support, the
-    share of the clone's cells in clusters where scVI calls the gene up
-    against the stage's other clusters (replicated_support uses the
-    per-source check instead). A gene is expressed in a clone at support
-    EXPRESSED_MIN, and specific when also SPECIFIC_MIN log2 above its mean
-    over the clones. "descendants" lists each clone's cells from cells_of
-    ({clone: cell names}, from the stage map) or, without it, from
-    IDENTITY_GEN. Returns one row per gene and clone."""
+    :param de: DE table of the stage.
+    :type de: pandas.DataFrame
+    :param share: Clone shares of the stage's clusters.
+    :type share: pandas.DataFrame
+    :param nodes: Per-cluster table from cluster_table.
+    :type nodes: pandas.DataFrame
+    :param stage: Stage.
+    :type stage: str
+    :param cells_of: Cells of each clone at this stage; None uses
+        IDENTITY_GEN.
+    :type cells_of: dict[str, set[str]] or None
+    :returns: One row per gene and clone: descendants, clone_cells, support
+        (share in clusters where scVI calls the gene up), replicated_support,
+        expression (scVI scale1), log_cp10k, detection (share of cells with a
+        count), lfc, specificity (log2 over the clone mean), expressed,
+        specific, n_clones and n_specific.
+    :rtype: pandas.DataFrame
+    """
     tested = sorted(set(de["stage_cluster"]) & set(share.index), key=num)
     size = nodes.loc[tested, "n_cells"].astype(float)
     cells = share.loc[tested].mul(size, axis=0)
@@ -1419,9 +1792,23 @@ def clone_expression(de, share, nodes, stage, cells_of=None):
 
 
 def predict_expression(de, shares, nodes, stage_maps, known_genes):
-    """clone_expression at every stage with both DE results and clone
-    shares, naming descendants from the stage maps. "known" flags genes
-    with ANISEED in situ data. Returns {stage: table}."""
+    """Run clone_expression at every stage that has DE results and clone
+    shares.
+
+    :param de: DE tables per stage.
+    :type de: dict[str, pandas.DataFrame]
+    :param shares: Clone shares per stage.
+    :type shares: dict[str, pandas.DataFrame]
+    :param nodes: Per-cluster table from cluster_table.
+    :type nodes: pandas.DataFrame
+    :param stage_maps: Neural plate maps from load_stage_maps.
+    :type stage_maps: dict[str, geopandas.GeoDataFrame]
+    :param known_genes: Genes with ANISEED in situ data.
+    :type known_genes: set[str]
+    :returns: Clone expression per stage, with descendants named from the
+        stage maps and "known" flagging known_genes.
+    :rtype: dict[str, pandas.DataFrame]
+    """
     results = {}
     for st, share in shares.items():
         if st not in de or not share.shape[1]:
@@ -1446,8 +1833,15 @@ def predict_expression(de, shares, nodes, stage_maps, known_genes):
 
 
 def top_genes(expression):
-    """The TOP_GENES most specific genes of each clone at each stage, among
-    genes without ANISEED in situ data: the predictions."""
+    """Pick the TOP_GENES most specific genes of each clone at each stage
+    among the specific genes without ANISEED data.
+
+    :param expression: Clone expression per stage, from predict_expression.
+    :type expression: dict[str, pandas.DataFrame]
+    :returns: Rows of the clone expression tables with a "rank" column,
+        ordered by stage, clone and rank.
+    :rtype: pandas.DataFrame
+    """
     tops = []
     for t in expression.values():
         t = t[t["specific"] & ~t["known"]].sort_values(
@@ -1472,13 +1866,18 @@ def top_genes(expression):
 
 
 def expression_benchmark(expression, stage_markers):
-    """Predicted clones of each ANISEED gene against its in situ clones.
+    """Score, for each ANISEED gene and stage, the clones where the gene is
+    expressed against its in situ clones (set_scores), and rank all clones by
+    expression (auroc).
 
-    The expressed clones are scored with set_scores, and all clones ranked
-    by expected expression give an AUROC (chance that a clone in the in situ
-    pattern outranks one outside it). midG is circular: the stage-12
-    annotations placed the clusters. Returns the per-gene table and the
-    per-stage means."""
+    :param expression: Clone expression per stage, from predict_expression.
+    :type expression: dict[str, pandas.DataFrame]
+    :param stage_markers: ANISEED genes from load_stage_markers.
+    :type stage_markers: pandas.DataFrame
+    :returns: Per-gene scores, and per-stage means with midG flagged circular
+        because these genes anchored the clusters.
+    :rtype: tuple[pandas.DataFrame, pandas.DataFrame]
+    """
     rows = []
     for rec in stage_markers.to_dict("records"):
         st, gene, truth = rec["stage"], rec["gene"], rec["truth"]
@@ -1534,100 +1933,18 @@ def expression_benchmark(expression, stage_markers):
     return bench, summary
 
 
-def analyze(
-    adata,
-    net,
-    homologs,
-    stage_maps,
-    stage_markers,
-    known_genes,
-):
-    """Run every analysis step on one set of cells and return the results.
-
-    Adds stage clusters and the per-stage UMAP to adata. Writes nothing.
-    """
-    res = {"adata": adata}
-    stages = res["stages"] = present_stages(adata)
-    print(pd.crosstab(adata.obs[STAGE_KEY], adata.obs[BATCH_KEY]).to_string())
-    cluster_stages(adata, stages)
-    res["de"] = differential_expression(adata, stages, homologs)
-    res["tp"], res["sub"] = solve_transport(adata, stages)
-    clusters_at = res["clusters_at"] = clusters_by_stage(adata, stages)
-    edges = res["edges"] = transport_edges(res["tp"], stages, clusters_at)
-    nodes = res["nodes"] = cluster_table(adata)
-    res["graph"] = transport_graph(nodes, edges)
-    res["es"], res["pv"], res["calls"], cluster_pick = anchor_clusters(
-        adata,
-        net,
-        nodes,
-    )
-    res["cluster_pick"] = cluster_pick
-    neural_clusters = res["neural_clusters"] = list(
-        res["calls"].index[res["calls"]["neural_plate"]],
-    )
-    blastomeres = sorted(
-        set(NP_GRID) | set(stage_maps[ANCHOR_STAGE]["name"]),
-        key=blastomere_key,
-    )
-    res["full"], res["best"] = best_cluster_per_blastomere(
-        res["es"],
-        res["pv"],
-        nodes,
-        blastomeres,
-    )
-    res["winkley"] = winkley_midg_benchmark(adata, cluster_pick, res["best"])
-    res["identities"], node_identity = predict_identities(
-        edges,
-        cluster_pick,
-        clusters_at,
-        nodes,
-        stages,
-        stage_maps,
-    )
-    res["adjacency"] = adjacency_table(nodes, edges, node_identity, stages)
-    res["clone_shares"] = clone_shares(
-        edges,
-        cluster_pick,
-        clusters_at,
-        stages,
-    )
-    res["expression"] = predict_expression(
-        res["de"],
-        res["clone_shares"],
-        nodes,
-        stage_maps,
-        known_genes,
-    )
-    res["top_genes"] = top_genes(res["expression"])
-    res["expression_benchmark"] = expression_benchmark(
-        res["expression"],
-        stage_markers,
-    )
-    res["backward"] = backward_benchmark(
-        adata,
-        res["tp"],
-        res["sub"],
-        cluster_pick,
-        neural_clusters,
-        stages,
-    )
-    res["forward"] = forward_benchmark(
-        adata,
-        res["tp"],
-        res["sub"],
-        cluster_pick,
-        neural_clusters,
-        clusters_at,
-        stages,
-    )
-    picks = adata.obs["stage_cluster"].map(res["calls"]["blastomeres"])
-    adata.obs["np_blastomeres"] = picks.astype(object)
-    return res
-
-
 # %% Plots
 def plot_stage_umaps(adata, stages, out):
-    """One UMAP per stage coloured by that stage's Leiden clusters."""
+    """Draw each stage's UMAP coloured by its Leiden clusters
+    ({out}_{stage}_umap).
+
+    :param adata: Cells from cluster_stages.
+    :type adata: anndata.AnnData
+    :param stages: Stages present, in CHAIN order.
+    :type stages: list[str]
+    :param out: Output file prefix.
+    :type out: str
+    """
     obs_stage = labels_of(adata, STAGE_KEY)
     for st in stages:
         m = obs_stage == st
@@ -1658,8 +1975,18 @@ def plot_stage_umaps(adata, stages, out):
 
 
 def plot_transport_heatmaps(edges, stages, clusters_at, out):
-    """One heatmap per pair of adjacent stages of the forward transport
-    share."""
+    """Draw the fwd share between each pair of adjacent stages as a heatmap,
+    target clusters ordered by their main source ({out}_transport_{a}_{b}).
+
+    :param edges: Cluster transport edges from transport_edges.
+    :type edges: pandas.DataFrame
+    :param stages: Stages present, in CHAIN order.
+    :type stages: list[str]
+    :param clusters_at: Stage clusters of each stage, from clusters_by_stage.
+    :type clusters_at: dict[str, list[str]]
+    :param out: Output file prefix.
+    :type out: str
+    """
     for a, b in zip(stages[:-1], stages[1:]):
         mat = (
             edges_between(edges, clusters_at[a], clusters_at[b])
@@ -1709,8 +2036,21 @@ def plot_transport_heatmaps(edges, stages, clusters_at, out):
 
 
 def plot_transport_network(nodes, edges, stages, clusters_at, out):
-    """Clusters in stage columns, coloured by tissue, linked by forward share
-    of PLOT_MIN_EDGE or more."""
+    """Draw the transport network: clusters in stage columns, grouped and
+    coloured by tissue and ordered to reduce crossings, with edges of fwd
+    PLOT_MIN_EDGE or more ({out}_transport_network).
+
+    :param nodes: Per-cluster table from cluster_table.
+    :type nodes: pandas.DataFrame
+    :param edges: Cluster transport edges from transport_edges.
+    :type edges: pandas.DataFrame
+    :param stages: Stages present, in CHAIN order.
+    :type stages: list[str]
+    :param clusters_at: Stage clusters of each stage, from clusters_by_stage.
+    :type clusters_at: dict[str, list[str]]
+    :param out: Output file prefix.
+    :type out: str
+    """
     shown = edges[edges["fwd"] >= PLOT_MIN_EDGE]
     tissue_rank = {t: i for i, t in enumerate(TISSUE_COLORS)}
 
@@ -1859,12 +2199,36 @@ def plot_neural_plate(
     outline_label=None,
     key="name",
 ):
-    """Neural plate map shaded by one value per blastomere.
+    """Draw a neural plate map shaded by one value per cell, with every cell
+    labelled ({out}_{name}).
 
-    values and notes are indexed by the map column key: "name" for the cell
-    itself, "clone" for the midG cell it descends from. Optionally writes a
-    cluster number (clusters) or a short text (notes) under each cell name,
-    and outlines a set of cells by name (outline)."""
+    :param neural_plate: Map polygons with name and clone.
+    :type neural_plate: geopandas.GeoDataFrame
+    :param values: Shading, indexed by the map column key.
+    :type values: pandas.Series
+    :param label: Colour bar label.
+    :type label: str
+    :param title: Title.
+    :type title: str
+    :param out: Output file prefix.
+    :type out: str
+    :param name: File name suffix.
+    :type name: str
+    :param clusters: Cluster to number under each cell name, indexed by name.
+    :type clusters: pandas.Series or None
+    :param vmax: Top of the colour scale.
+    :type vmax: float or None
+    :param notes: Text under each cell name, indexed by key; ignored with
+        clusters.
+    :type notes: pandas.Series or None
+    :param outline: Cells to outline, by name.
+    :type outline: set[str] or None
+    :param outline_label: Legend text for the outline.
+    :type outline_label: str or None
+    :param key: Map column that values and notes are indexed by, "name" or
+        "clone".
+    :type key: str
+    """
     gdf = neural_plate.join(values.rename("value"), on=key)
     second = pd.Series(None, index=gdf.index, dtype=object)
     if clusters is not None:
@@ -1943,8 +2307,14 @@ def plot_neural_plate(
 
 
 def plot_winkley_labels(by_label, out):
-    """Precision, recall and score of the midG picks for each Winkley grid
-    label."""
+    """Draw the mean precision, recall and score of the midG picks per Winkley
+    grid label ({out}_midG_winkley_labels).
+
+    :param by_label: Means per label from winkley_midg_benchmark.
+    :type by_label: pandas.DataFrame
+    :param out: Output file prefix.
+    :type out: str
+    """
     if not len(by_label):
         return
     shown_metrics = ["precision", "recall", "score"]
@@ -1988,8 +2358,20 @@ def plot_winkley_labels(by_label, out):
 
 
 def plot_backward(backward, shares, calls, out):
-    """Per early stage: label enrichment heatmap and expected-ancestry
-    scatter."""
+    """Draw, per BENCH_GEN stage, each neural plate cluster's log2 label
+    enrichment with expected labels boxed ({out}_backward_{st}_enrichment),
+    and its expected share against the background
+    ({out}_backward_{st}_expected).
+
+    :param backward: Per-cluster rows from backward_benchmark.
+    :type backward: pandas.DataFrame
+    :param shares: Per-label shares from backward_benchmark.
+    :type shares: pandas.DataFrame
+    :param calls: Call table from anchor_clusters.
+    :type calls: pandas.DataFrame
+    :param out: Output file prefix.
+    :type out: str
+    """
     for st, g in shares.groupby("stage") if len(shares) else []:
         fold = g.pivot(index="stage_cluster", columns="label", values="fold")
         expected = g.pivot(
@@ -2089,8 +2471,19 @@ def plot_backward(backward, shares, calls, out):
 
 
 def plot_forward(forward, shares, stages, out):
-    """Nervous system share of midG descendants per stage, and their tissue
-    mix."""
+    """Draw the nervous system share of each midG cluster's descendants per
+    stage ({out}_forward_nervous_share) and the mean tissue mix of the neural
+    plate clusters' descendants ({out}_forward_tissue_composition).
+
+    :param forward: Per-cluster rows from forward_benchmark.
+    :type forward: pandas.DataFrame
+    :param shares: Per-tissue shares from forward_benchmark.
+    :type shares: pandas.DataFrame
+    :param stages: Stages present, in CHAIN order.
+    :type stages: list[str]
+    :param out: Output file prefix.
+    :type out: str
+    """
     if not len(forward):
         return
     fw_stages = [s for s in stages if s in set(forward["stage"].astype(str))]
@@ -2215,9 +2608,15 @@ def plot_forward(forward, shares, stages, out):
 
 
 def plot_expression_heatmaps(expression, out):
-    """Per stage: specificity of the top predicted genes (no ANISEED data)
-    of every clone across the neural plate clones, with a dot where the gene
-    is expressed."""
+    """Draw, per stage, the specificity of each clone's TOP_GENES predicted
+    genes across all clones, with a dot where the gene is expressed
+    ({out}_{stage}_clone_expression).
+
+    :param expression: Clone expression per stage, from predict_expression.
+    :type expression: dict[str, pandas.DataFrame]
+    :param out: Output file prefix.
+    :type out: str
+    """
     cmap = DIVERGING.with_extremes(bad="#f0efec")
     for st, t in expression.items():
         spec = t[t["specific"] & ~t["known"]].sort_values(
@@ -2281,18 +2680,24 @@ def plot_expression_heatmaps(expression, out):
 
 
 def plot_expression_maps(expression, tops, bench, stage_maps, out):
-    """Neural plate maps per stage, on that stage's map (the midG map when it
-    has none), shaded by expected expression (log1p CP10k) on one scale per
-    gene across stages:
+    """Draw per stage, on that stage's map (the midG map when it has none):
+    the number of specific predicted genes per clone, labelled with the top
+    one ({out}_{stage}_top_gene_map); and log1p CP10k, on one scale per gene
+    across stages, of each predicted gene (MAP_PER_CLONE per clone plus
+    MAP_GENES) and of each ANISEED gene at its benchmark stage with the in
+    situ cells outlined ({out}_{stage}_gene_{gene}).
 
-    - each clone's most specific predicted gene (no ANISEED data);
-    - predicted genes, the MAP_PER_CLONE most specific of each clone at any
-      stage plus MAP_GENES, at every stage;
-    - ground truth, the ANISEED genes in bench, at their stage with the in
-      situ cells outlined.
-
-    Cells of one clone share a value; the transport cannot tell sisters
-    apart."""
+    :param expression: Clone expression per stage, from predict_expression.
+    :type expression: dict[str, pandas.DataFrame]
+    :param tops: Top genes from top_genes.
+    :type tops: pandas.DataFrame
+    :param bench: Per-gene rows from expression_benchmark.
+    :type bench: pandas.DataFrame
+    :param stage_maps: Neural plate maps from load_stage_maps.
+    :type stage_maps: dict[str, geopandas.GeoDataFrame]
+    :param out: Output file prefix.
+    :type out: str
+    """
     peak = pd.concat(
         [t.groupby("gene")["log_cp10k"].max() for t in expression.values()],
         axis=1,
@@ -2360,8 +2765,14 @@ def plot_expression_maps(expression, tops, bench, stage_maps, out):
 
 
 def plot_expression_benchmark(summary, out):
-    """Mean precision, recall and AUROC of the predicted expression against
-    ANISEED, per stage."""
+    """Draw the mean precision, recall and AUROC of the expression benchmark
+    per stage ({out}_expression_benchmark).
+
+    :param summary: Per-stage means from expression_benchmark.
+    :type summary: pandas.DataFrame
+    :param out: Output file prefix.
+    :type out: str
+    """
     if not len(summary):
         return
     shown = ["precision", "recall", "auroc"]
@@ -2410,172 +2821,94 @@ def plot_expression_benchmark(summary, out):
     save(fig, out, "expression_benchmark")
 
 
-# %% Writers
-def write_results(res, out):
-    """Write the tables, graph and AnnData of one analyze() result."""
-    for st, de in res["de"].items():
-        write_csv(
-            de,
-            out,
-            f"{st}_de",
-            index=False,
-        )
-    write_csv(
-        res["edges"],
-        out,
-        "transport_edges",
-        index=False,
-    )
-    nx.write_graphml(
-        res["graph"],
-        f"{out}_transport_graph.graphml",
-    )
-    write_csv(
-        res["es"],
-        out,
-        f"{ANCHOR_STAGE}_territory_scores",
-    )
-    write_csv(
-        res["calls"],
-        out,
-        f"{ANCHOR_STAGE}_territory_calls",
-    )
-    write_csv(
-        res["full"],
-        out,
-        "blastomere_cluster_scores",
-        index=False,
-    )
-    write_csv(
-        res["best"],
-        out,
-        "blastomere_best_cluster",
-    )
-    _, by_label, by_blastomere, summary = res["winkley"]
-    write_csv(
-        by_label,
-        out,
-        f"{ANCHOR_STAGE}_winkley_labels",
-    )
-    write_csv(
-        by_blastomere,
-        out,
-        f"{ANCHOR_STAGE}_winkley_blastomeres",
-    )
-    write_csv(
-        summary,
-        out,
-        f"{ANCHOR_STAGE}_winkley_summary",
-        index=False,
-    )
-    write_csv(
-        res["identities"],
-        out,
-        "predicted_identities",
-    )
-    write_csv(
-        res["adjacency"],
-        out,
-        "adjacency",
-        sep="\t",
-    )
-    backward, backward_shares, backward_summary = res["backward"]
-    write_csv(
-        backward,
-        out,
-        "backward_benchmark",
-        index=False,
-    )
-    write_csv(
-        backward_shares,
-        out,
-        "backward_label_shares",
-        index=False,
-    )
-    write_csv(
-        backward_summary,
-        out,
-        "backward_summary",
-    )
-    forward, forward_shares, forward_summary = res["forward"]
-    write_csv(
-        forward,
-        out,
-        "forward_benchmark",
-        index=False,
-    )
-    write_csv(
-        forward_shares,
-        out,
-        "forward_tissue_shares",
-        index=False,
-    )
-    write_csv(
-        forward_summary,
-        out,
-        "forward_summary",
-    )
-    for st, share in res["clone_shares"].items():
-        write_csv(
-            share,
-            out,
-            f"{st}_clone_shares",
-        )
-    for st, t in res["expression"].items():
-        expressed = t[t["n_clones"] > 0]
-        write_csv(
-            expressed,
-            out,
-            f"{st}_clone_expression",
-            index=False,
-        )
-    write_csv(
-        res["top_genes"],
-        out,
-        "clone_top_genes",
-        index=False,
-    )
-    bench, bench_summary = res["expression_benchmark"]
-    write_csv(
-        bench,
-        out,
-        "expression_benchmark",
-        index=False,
-    )
-    write_csv(
-        bench_summary,
-        out,
-        "expression_benchmark_summary",
-    )
-    adata = res["adata"]
-    for col in ("stage_leiden", "stage_cluster", "np_blastomeres"):
-        adata.obs[col] = pd.Categorical(adata.obs[col].astype(object))
-    adata.write_h5ad(f"{out}_lineage.h5ad")
+# %% Pipeline
+def analyze(
+    adata,
+    net,
+    homologs,
+    stage_maps,
+    stage_markers,
+    known_genes,
+    out,
+):
+    """Run every step on one set of cells, writing each step's tables and
+    figures as soon as it finishes, and the cells with their stage clusters,
+    per-stage UMAP and np_blastomeres to {out}_lineage.h5ad.
 
-
-def plot_results(res, stage_maps, out):
-    """Draw every figure of one analyze() result."""
+    :param adata: Cells; modified in place.
+    :type adata: anndata.AnnData
+    :param net: Territory network from load_territory_net.
+    :type net: pandas.DataFrame
+    :param homologs: Homologs from load_homologs.
+    :type homologs: pandas.DataFrame
+    :param stage_maps: Neural plate maps from load_stage_maps.
+    :type stage_maps: dict[str, geopandas.GeoDataFrame]
+    :param stage_markers: ANISEED genes from load_stage_markers.
+    :type stage_markers: pandas.DataFrame
+    :param known_genes: Genes with ANISEED in situ data.
+    :type known_genes: set[str]
+    :param out: Output file prefix.
+    :type out: str
+    :returns: Every step's result, keyed by name.
+    :rtype: dict
+    """
+    res = {"adata": adata}
+    stages = res["stages"] = present_stages(adata)
+    print(pd.crosstab(adata.obs[STAGE_KEY], adata.obs[BATCH_KEY]).to_string())
     neural_plate = stage_maps[ANCHOR_STAGE]
-    stages, clusters_at = res["stages"], res["clusters_at"]
-    plot_stage_umaps(res["adata"], stages, out)
-    plot_transport_heatmaps(res["edges"], stages, clusters_at, out)
-    plot_transport_network(
-        res["nodes"],
-        res["edges"],
-        stages,
-        clusters_at,
-        out,
+
+    cluster_stages(adata, stages)
+    plot_stage_umaps(adata, stages, out)
+
+    res["de"] = differential_expression(adata, stages, homologs)
+    for st, de in res["de"].items():
+        write_csv(de, out, f"{st}_de", index=False)
+
+    res["tp"], res["sub"] = solve_transport(adata, stages)
+    clusters_at = res["clusters_at"] = clusters_by_stage(adata, stages)
+    edges = res["edges"] = transport_edges(res["tp"], stages, clusters_at)
+    nodes = res["nodes"] = cluster_table(adata)
+    res["graph"] = transport_graph(nodes, edges)
+    write_csv(edges, out, "transport_edges", index=False)
+    nx.write_graphml(res["graph"], f"{out}_transport_graph.graphml")
+    plot_transport_heatmaps(edges, stages, clusters_at, out)
+    plot_transport_network(nodes, edges, stages, clusters_at, out)
+
+    es, pv, calls, cluster_pick = anchor_clusters(adata, net, nodes)
+    neural_clusters = list(calls.index[calls["neural_plate"]])
+    res.update(
+        es=es,
+        pv=pv,
+        calls=calls,
+        cluster_pick=cluster_pick,
+        neural_clusters=neural_clusters,
     )
+    write_csv(es, out, f"{ANCHOR_STAGE}_territory_scores")
+    write_csv(calls, out, f"{ANCHOR_STAGE}_territory_calls")
+
+    blastomeres = sorted(
+        set(NP_GRID) | set(neural_plate["name"]),
+        key=blastomere_key,
+    )
+    full, best = best_cluster_per_blastomere(es, pv, nodes, blastomeres)
+    res.update(full=full, best=best)
+    write_csv(full, out, "blastomere_cluster_scores", index=False)
+    write_csv(best, out, "blastomere_best_cluster")
     plot_neural_plate(
         neural_plate,
-        res["best"]["score"],
+        best["score"],
         "ULM score (t) of the best cluster",
         f"Best {ANCHOR_STAGE} cluster for each blastomere",
         out,
         f"{ANCHOR_STAGE}_blastomere_map",
-        clusters=res["best"]["stage_cluster"],
+        clusters=best["stage_cluster"],
     )
-    _, by_label, by_blastomere, _ = res["winkley"]
+
+    res["winkley"] = winkley_midg_benchmark(adata, cluster_pick, best)
+    _, by_label, by_blastomere, summary = res["winkley"]
+    write_csv(by_label, out, f"{ANCHOR_STAGE}_winkley_labels")
+    write_csv(by_blastomere, out, f"{ANCHOR_STAGE}_winkley_blastomeres")
+    write_csv(summary, out, f"{ANCHOR_STAGE}_winkley_summary", index=False)
     plot_winkley_labels(by_label, out)
     if len(by_label):
         plot_neural_plate(
@@ -2587,12 +2920,51 @@ def plot_results(res, stage_maps, out):
             f"{ANCHOR_STAGE}_winkley_map",
             vmax=1,
         )
-    backward, backward_shares, _ = res["backward"]
-    plot_backward(backward, backward_shares, res["calls"], out)
-    forward, forward_shares, _ = res["forward"]
-    plot_forward(forward, forward_shares, stages, out)
+
+    res["identities"], node_identity = predict_identities(
+        edges,
+        cluster_pick,
+        clusters_at,
+        nodes,
+        stages,
+        stage_maps,
+    )
+    res["adjacency"] = adjacency_table(nodes, edges, node_identity, stages)
+    write_csv(res["identities"], out, "predicted_identities")
+    write_csv(res["adjacency"], out, "adjacency", sep="\t")
+
+    res["clone_shares"] = clone_shares(
+        edges,
+        cluster_pick,
+        clusters_at,
+        stages,
+    )
+    for st, share in res["clone_shares"].items():
+        write_csv(share, out, f"{st}_clone_shares")
+
+    res["expression"] = predict_expression(
+        res["de"],
+        res["clone_shares"],
+        nodes,
+        stage_maps,
+        known_genes,
+    )
+    for st, t in res["expression"].items():
+        expressed = t[t["n_clones"] > 0]
+        write_csv(expressed, out, f"{st}_clone_expression", index=False)
     plot_expression_heatmaps(res["expression"], out)
+
+    res["top_genes"] = top_genes(res["expression"])
+    write_csv(res["top_genes"], out, "clone_top_genes", index=False)
+
+    res["expression_benchmark"] = expression_benchmark(
+        res["expression"],
+        stage_markers,
+    )
     bench, bench_summary = res["expression_benchmark"]
+    write_csv(bench, out, "expression_benchmark", index=False)
+    write_csv(bench_summary, out, "expression_benchmark_summary")
+    plot_expression_benchmark(bench_summary, out)
     plot_expression_maps(
         res["expression"],
         res["top_genes"],
@@ -2600,7 +2972,42 @@ def plot_results(res, stage_maps, out):
         stage_maps,
         out,
     )
-    plot_expression_benchmark(bench_summary, out)
+
+    res["backward"] = backward_benchmark(
+        adata,
+        res["tp"],
+        res["sub"],
+        cluster_pick,
+        neural_clusters,
+        stages,
+    )
+    backward, backward_shares, backward_summary = res["backward"]
+    write_csv(backward, out, "backward_benchmark", index=False)
+    write_csv(backward_shares, out, "backward_label_shares", index=False)
+    write_csv(backward_summary, out, "backward_summary")
+    plot_backward(backward, backward_shares, calls, out)
+
+    res["forward"] = forward_benchmark(
+        adata,
+        res["tp"],
+        res["sub"],
+        cluster_pick,
+        neural_clusters,
+        clusters_at,
+        stages,
+    )
+    forward, forward_shares, forward_summary = res["forward"]
+    write_csv(forward, out, "forward_benchmark", index=False)
+    write_csv(forward_shares, out, "forward_tissue_shares", index=False)
+    write_csv(forward_summary, out, "forward_summary")
+    plot_forward(forward, forward_shares, stages, out)
+
+    picks = adata.obs["stage_cluster"].map(calls["blastomeres"])
+    adata.obs["np_blastomeres"] = picks.astype(object)
+    for col in ("stage_leiden", "stage_cluster", "np_blastomeres"):
+        adata.obs[col] = pd.Categorical(adata.obs[col].astype(object))
+    adata.write_h5ad(f"{out}_lineage.h5ad")
+    return res
 
 
 # %% All cells
@@ -2618,9 +3025,8 @@ res = analyze(
     stage_maps,
     stage_markers,
     known_genes,
+    OUT,
 )
-write_results(res, OUT)
-plot_results(res, stage_maps, OUT)
 
 # %% Ancestors and descendants of the midG neural plate clusters
 np_lineage = neural_plate_lineage(
@@ -2651,6 +3057,5 @@ res_np = analyze(
     stage_maps,
     stage_markers,
     known_genes,
+    f"{OUT}_np",
 )
-write_results(res_np, f"{OUT}_np")
-plot_results(res_np, stage_maps, f"{OUT}_np")
