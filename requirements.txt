@@ -71,7 +71,7 @@ scikit-image==0.26.0
 scipy-stubs==1.18.1.1
 scipy==1.18.1
 scvi-tools==1.5.1
-setuptools==84.0.0
+setuptools==84.1.0
 smart-open==8.0.1
 starlette==1.7.0
 tensorboardx==2.6.5
